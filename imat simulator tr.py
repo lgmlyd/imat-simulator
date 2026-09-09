@@ -186,23 +186,15 @@ def taban_tahmini_hesapla(uni, tur_idx, yontem="ortalama", sensitivite=0.75):
     return son_yil, son_puan, round(sicrama, 1), (None if koltuk_degisim_yuzde is None else round(koltuk_degisim_yuzde, 1)), tahmin_2026
 
 
-def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75):
+def _farklar_bul(uni, tur_idx, gecis_yili_haric=True):
     """
-    SEFFAF Monte Carlo simulasyonu - her adimi acik:
-      1) 2022-2025 arasi ardisik yil farklarini toplar (taban_tahmini_hesapla ile AYNI veri)
-      2) Bu farklarin ORTALAMASINI ve ORNEKLEM STANDART SAPMASINI (ddof=1) hesaplar -
-         "volatilite" burada tam olarak budur, baska bir gizli katsayi yok
-      3) n_sim (varsayilan 100.000) adet rastgele "2026 sicramasi" ornekler:
-         Normal(ortalama_fark, std_fark) dagiliminda
-      4) Her orneklenen sicramaya, taban_tahmini_hesapla'daki AYNI kontenjan
-         baski etkisi eklenir (tutarlilik icin)
-      5) Sonuclar 0-90 araliginda sinirlanir (60 soru x 1.5 puan = matematiksel tavan)
-      6) SIMULASYON MEDYANI = n_sim sonucu kucukten buyuge SIRALAYIP tam ortadaki
-         degeri almak (np.median) - "simulation median" tanimiyla birebir ayni
-      7) GUVEN HEDEFI (%95) = sirali sonuclarin 95. yuzdelik dilimi - yani
-         orneklerin %95'i bu degerin ALTINDA kaliyor
-    Sadece 2 veri noktasi (1 fark) varsa std hesaplanamaz - bu durumda std,
-    o tek farkin yarisi olarak KABACA varsayilir ve arayuzde acikca belirtilir.
+    Bir universitenin 2022-2025 arasindaki ardisik yil-yil taban puan farklarini dondurur.
+    gecis_yili_haric=True (varsayilan): 2023->2024 farki HARIC TUTULUR. Sebep: bu, TUM
+    okullarda ayni anda yasanmis, ~+21/+22 puanlik cok buyuk, tek seferlik bir SISTEMIK
+    sicrama (muhtemelen Cambridge'den MUR'a gecis yili - kodun 5. sekmesindeki notta zaten
+    isaret ediliyor). Bu bir 'normal yillik oynaklik' degil, 'yapisal kirilma'dir - 2026'da
+    tekrarlanmasi beklenmez. Havuzlama (pooling) bunu KUCULTEMEZ cunku her okulda ayni sekilde
+    var - bu yuzden dogrudan disarida birakmak gerekiyor.
     """
     yillar_puan = TABAN_PUANLAR.get(uni, {})
     degerler = []
@@ -212,18 +204,111 @@ def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75
         if deger is not None:
             degerler.append((yil, deger))
     if len(degerler) < 2:
-        return None
+        return []
+    farklar = []
+    for i in range(len(degerler) - 1):
+        yil_onceki, yil_sonraki = degerler[i][0], degerler[i + 1][0]
+        if gecis_yili_haric and yil_onceki == 2023 and yil_sonraki == 2024:
+            continue
+        farklar.append(degerler[i + 1][1] - degerler[i][1])
+    return farklar
 
-    farklar = [degerler[i + 1][1] - degerler[i][1] for i in range(len(degerler) - 1)]
+
+def havuzlanmis_varyans(tur_idx, gecis_yili_haric=True):
+    """
+    KLASIK POOLED VARIANCE (ANOVA'da/t-testlerde kullanilan standart formul):
+    sum( (n_i-1) * var_i ) / sum( n_i-1 )
+    Her universitenin kendi farklarindan hesaplanan varyansi, o okulun serbestlik
+    derecesiyle (df_i = n_i-1) agirliklandirip TUM okullar icin ortak/tipik bir
+    "temel volatilite" uretir.
+    """
+    pay, payda = 0.0, 0
+    hepsi = []
+    for uni in UNIVERSITELER:
+        farklar = _farklar_bul(uni, tur_idx, gecis_yili_haric=gecis_yili_haric)
+        hepsi.extend(farklar)
+        if len(farklar) >= 2:
+            var_i = float(np.var(farklar, ddof=1))
+            df_i = len(farklar) - 1
+            pay += df_i * var_i
+            payda += df_i
+    if payda == 0:
+        return float(np.var(hepsi)) if hepsi else 1.0
+    return pay / payda
+
+
+def volatilite_index_hesapla(uni, tur_idx, k=3, gecis_yili_haric=True):
+    """
+    SEFFAF VOLATILITE HESABI - shrinkage/partial pooling (Efron-Morris / James-Stein
+    tipi tahminci - kucuk orneklemli gruplarda standart bir istatistik teknigi):
+
+        shrunk_var = (df_i * kendi_varyansi + k * havuzlanmis_varyans) / (df_i + k)
+
+    df_i = o okulun kac yil-yil farki oldugu (genelde SADECE 2 veya 3 - cok az).
+    k = havuza verilen agirlik (varsayilan 3).
+
+    NOT: gecis_yili_haric=True iken 2023->2024 sistemik sicramasi ZATEN cikarilmis
+    oluyor - bu yuzden havuzlanmis varyans artik daha kucuk/gercekci cikar. Bazi
+    okullarda (Cagliari, Catania, Bari gibi bosluk-yili olanlarda) bu cikarma
+    sonrasi elde SADECE 0 veya 1 fark kalabilir - bu durumda okulun kendi
+    varyansi hic hesaplanamaz, tamamen havuza guvenilir (asagida ele alinir).
+    """
+    farklar = _farklar_bul(uni, tur_idx, gecis_yili_haric=gecis_yili_haric)
+    pooled_var = havuzlanmis_varyans(tur_idx, gecis_yili_haric=gecis_yili_haric)
+    if not farklar:
+        return float(np.sqrt(max(pooled_var, 0.0)))
+    df_i = len(farklar) - 1
+    if df_i >= 1:
+        individual_var = float(np.var(farklar, ddof=1))
+        shrunk_var = (df_i * individual_var + k * pooled_var) / (df_i + k)
+    else:
+        shrunk_var = pooled_var  # tek fark var (ya da hic yok), kendi varyansi hesaplanamaz -> tamamen havuza guven
+    return float(np.sqrt(max(shrunk_var, 0.0)))
+
+
+def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75, k=3, gecis_yili_haric=True):
+    """
+    SEFFAF Monte Carlo simulasyonu - her adimi acik:
+      1) 2022-2025 arasi ardisik yil farklarini toplar (gecis_yili_haric=True ise
+         2023->2024 sistemik/tek seferlik sicramasi disarida birakilir - bkz. _farklar_bul)
+      2) Ortalama farki hesaplar (ort_fark) - eger cikarma sonrasi hic fark kalmadiysa
+         (ort_fark hesaplanamiyorsa), TUM okullarin (ayni haric tutma ile) ortalama
+         farkina guvenilir (asagida ele alinir)
+      3) VOLATILITE = volatilite_index_hesapla() ile shrinkage/pooled yontemle hesaplanir
+      4) n_sim (varsayilan 100.000) adet rastgele "2026 sicramasi" ornekler:
+         Normal(ort_fark, volatilite) dagiliminda
+      5) Her orneklenen sicramaya, taban_tahmini_hesapla'daki AYNI kontenjan
+         baski etkisi eklenir (tutarlilik icin)
+      6) Sonuclar 0-90 araliginda sinirlanir (60 soru x 1.5 puan = matematiksel tavan)
+      7) SIMULASYON MEDYANI = n_sim sonucu kucukten buyuge SIRALAYIP tam ortadaki
+         degeri almak (np.median)
+      8) %95 TAHMIN ARALIGI UST SINIRI = sirali sonuclarin 95. yuzdelik dilimi.
+         DIKKAT: bu klasik anlamda bir 'confidence interval' DEGIL - CI, tekrarlanan
+         orneklemede GERCEK POPULASYON PARAMETRESINI icerecek araligi tanimlar.
+         Burada urettigimiz sey bir 'PREDICTION INTERVAL' (tahmin araligi).
+    """
+    yillar_puan = TABAN_PUANLAR.get(uni, {})
+    degerler = [(y, yillar_puan[y][tur_idx]) for y in [2022, 2023, 2024, 2025]
+                if yillar_puan.get(y, (None, None))[tur_idx] is not None]
+    if len(degerler) < 2:
+        return None
     son_yil, son_puan = degerler[-1]
 
-    ort_fark = float(np.mean(farklar))
-    std_kaba_varsayim = False
-    if len(farklar) >= 2:
-        std_fark = float(np.std(farklar, ddof=1))
+    farklar = _farklar_bul(uni, tur_idx, gecis_yili_haric=gecis_yili_haric)
+    if farklar:
+        ort_fark = float(np.mean(farklar))
+        ort_fark_kaynak = "okulun kendi verisi"
     else:
-        std_fark = abs(farklar[0]) * 0.5
-        std_kaba_varsayim = True
+        # gecis yili haric tutulunca bu okulda hic fark kalmadi (orn. 2 veri
+        # noktasi vardi ve tam olarak 2023->2024 araligiydi) - tum okullarin
+        # (ayni haric tutmayla) ortalama farkina guveniliyor, acikca belirtiliyor
+        tum_farklar = []
+        for u in UNIVERSITELER:
+            tum_farklar.extend(_farklar_bul(u, tur_idx, gecis_yili_haric=gecis_yili_haric))
+        ort_fark = float(np.mean(tum_farklar)) if tum_farklar else 0.0
+        ort_fark_kaynak = "TUM okullarin ortalamasi (bu okulda gecerli fark kalmadi)"
+
+    volatilite = volatilite_index_hesapla(uni, tur_idx, k=k, gecis_yili_haric=gecis_yili_haric)
 
     yillar_koltuk = KONTENJAN_TARIHSEL.get(uni, {})
     koltuk_son_yil = (yillar_koltuk.get(son_yil, (None, None))[tur_idx]
@@ -238,17 +323,17 @@ def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75
         baski_etkisi = (15 - koltuk_degisim_yuzde) / 10 * sensitivite
 
     rng = np.random.default_rng(seed)
-    ornek_siçramalar = rng.normal(loc=ort_fark, scale=max(std_fark, 0.01), size=n_sim)
+    ornek_siçramalar = rng.normal(loc=ort_fark, scale=max(volatilite, 0.01), size=n_sim)
     sonuclar = son_puan + ornek_siçramalar + baski_etkisi
     sonuclar = np.clip(sonuclar, 0.0, 90.0)
     sonuclar_sirali = np.sort(sonuclar)
 
     return {
         "son_yil": son_yil, "son_puan": son_puan,
-        "ort_fark": round(ort_fark, 2), "std_fark": round(std_fark, 2),
-        "std_kaba_varsayim": std_kaba_varsayim,
+        "ort_fark": round(ort_fark, 2), "ort_fark_kaynak": ort_fark_kaynak,
+        "volatilite": round(volatilite, 2),
         "medyan": round(float(np.median(sonuclar_sirali)), 1),
-        "p95_guven_hedefi": round(float(np.percentile(sonuclar_sirali, 95)), 1),
+        "p95_tahmin_araligi": round(float(np.percentile(sonuclar_sirali, 95)), 1),
         "p5_kotumser": round(float(np.percentile(sonuclar_sirali, 5)), 1),
         "n_sim": n_sim,
     }
@@ -821,7 +906,10 @@ with sekme7:
         "- **Scorrimento**: ilk yerlesim sonrasi bosalan yerlerin (vazgecenler yuzunden) siradaki adaylara otomatik "
         "kaydirilarak dagitilmasi sureci - Italyan sisteminde birkac ay surebilir\n"
         "- **Bosluk yili (⚠️)**: o universite icin bazi yillarda veri bulunamadigi/eksik oldugu icin projeksiyonun daha "
-        "eski bir yildan yapildigi anlamina gelir - bu isaretli satirlar diger satirlara gore daha temkinli okunmali"
+        "eski bir yildan yapildigi anlamina gelir - bu isaretli satirlar diger satirlara gore daha temkinli okunmali\n"
+        "- **Tahmin Araligi vs Guven Araligi**: 'Seffaf Monte Carlo Simulasyonu' sekmesinde bu ikisinin farki ve "
+        "'Volatilite Index'in shrinkage/pooled yontemle nasil hesaplandigi ayrintili anlatiliyor - dis kaynagin "
+        "kullandigi (ama tanimlamadigi) terimlerin doğrusu icin oraya bak"
     )
 
 # ----------------------------------------------------------------------
@@ -902,45 +990,85 @@ with sekme9:
     st.subheader("Seffaf Monte Carlo Simulasyonu")
     st.caption(
         "Bu sekme dis kaynagin yaptigini iddia ettigi seyi GERCEKTEN yapiyor - ve her adimi "
-        "acikca gosteriyor. 'Simulasyon Medyani' burada gercekten 100.000 orneklemin kucukten "
-        "buyuge siralanip tam ortasindaki deger; 'volatilite' de gercekten 2022-2025 arasindaki "
-        "yil-yil farklarin standart sapmasi - gizli/varsayimsal bir katsayi degil."
+        "acikca gosteriyor."
+    )
+
+    with st.expander("Terminoloji notu: 'Guven Araligi' mi, 'Tahmin Araligi' mi?", expanded=True):
+        st.markdown(
+            "Klasik **confidence interval (guven araligi)**, tekrarlanan orneklemede araligin "
+            "%95 ihtimalle GERCEK POPULASYON PARAMETRESINI (orn. gercek ortalama taban puanini) "
+            "icerecegini soyler. Ama bizim burada cevaplamaya calistigimiz soru bu degil - biz "
+            "'2026'da GERCEKLESECEK TEK BIR taban puani ne olacak' diye soruyoruz. Bunun dogru "
+            "istatistiksel karsiligi **prediction interval (tahmin araligi)**'dir: gelecekteki "
+            "TEK bir gozlemin bu araliga dusme ihtimalini verir, ve CI'dan her zaman daha genistir "
+            "(cunku hem parametre belirsizligini HEM DE o tek gozlemin kendi rastgeleligini icerir). "
+            "Bu yuzden asagida 'Guven Hedefi' degil **'%95 Tahmin Araligi'** basligini kullaniyoruz - "
+            "dogru terim bu."
+        )
+
+    with st.expander("Volatilite Index nasil hesaplandi? (shrinkage/pooled yontem)"):
+        st.markdown(
+            "2022-2025 arasi sadece 2-3 yil-yil fark var - bundan hesaplanan ham standart sapma "
+            "kendisi cok kararsiz (bir onceki mesajda gorduk: 11-14 puan araliginda, hepsi TEK bir "
+            "ortak sicramadan - 2023->2024 gecisinden - kaynaklaniyordu). Bu yuzden **pooled variance / "
+            "shrinkage** (istatistikte kucuk orneklemli gruplar icin standart teknik, orn. Efron-Morris "
+            "James-Stein tahmincisi) kullaniyoruz:\n\n"
+            "1. Once TUM universiteler icin ORTAK bir 'havuzlanmis varyans' hesaplanir (klasik ANOVA "
+            "pooled-variance formulu: `sum((n_i-1)*var_i) / sum(n_i-1)`) - bu, 2023->2024 gibi TUM "
+            "okullarda ayni anda yasanan ulusal sicramalari dogru sekilde paylastirir.\n"
+            "2. Her okulun KENDI varyansi, bu havuzlanmis varyansa dogru 'cekilir' "
+            "(`shrunk_var = (df*kendi_varyans + k*havuz_varyans) / (df+k)`) - okulun kendi veri "
+            "miktari (df) ne kadar azsa, havuza o kadar cok guvenilir.\n"
+            "3. **Volatilite Index = sqrt(shrunk_var)**."
+        )
+
+    with st.expander("2023->2024 sistemik sicramasi neden hesaptan cikarildi?", expanded=True):
+        st.markdown(
+            "Havuzlama (pooling) tek basina yeterli olmadi: 2023->2024 gecisinde HER okulda "
+            "ayni anda ~+21/+22 puanlik dev bir sicrama var (muhtemelen Cambridge'den MUR'a "
+            "gecis yili - kodun 5. sekmesinde zaten bu notlanmis). Bu okula ozgu bir 'oynaklik' "
+            "degil, tek seferlik bir YAPISAL KIRILMA - havuzlama bunu kucultmez, sadece tum "
+            "okullara esit yayar. Bu yuzden asagidaki secenek varsayilan olarak bu yili "
+            "hesaplamadan CIKARIYOR (sadece 2022->2023 ve 2024->2025 farklarini kullaniyor)."
+        )
+    gecis_yili_secim = st.checkbox(
+        "2023->2024 sistemik sicramasini hesaptan cikar (onerilir)", value=True, key="s9_gecis"
     )
 
     n_sim_secim = st.select_slider("Orneklem sayisi (n_sim)", options=[1000, 10000, 100000, 500000], value=100000)
+    k_secim = st.slider("Havuzlama gucu (k) - yuksek = daha cok havuza guven, dusuk = daha cok okulun kendi verisine guven",
+                          1, 10, 3)
     tur_s9 = st.radio("Kontenjan Turu", ["EU", "NonEU"], horizontal=True, key="s9_tur")
     tur_idx_s9 = 0 if tur_s9 == "EU" else 1
 
     satirlar_s9 = []
     for uni in UNIVERSITELER:
-        sonuc = monte_carlo_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75)
+        sonuc = monte_carlo_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75, k=k_secim,
+                                         gecis_yili_haric=gecis_yili_secim)
         if sonuc is None:
             continue
         satirlar_s9.append({
-            "Universite": uni + (" (std kaba varsayim)" if sonuc["std_kaba_varsayim"] else ""),
+            "Universite": uni + (" ⚠️" if "TUM okullarin" in sonuc["ort_fark_kaynak"] else ""),
             "Son Puan": sonuc["son_puan"],
             "Ort. Yillik Fark": sonuc["ort_fark"],
-            "Volatilite (std)": sonuc["std_fark"],
+            "Volatilite Index (havuzlanmis)": sonuc["volatilite"],
             "Simulasyon Medyani": sonuc["medyan"],
-            "%95 Guven Hedefi": sonuc["p95_guven_hedefi"],
+            "%95 Tahmin Araligi (ust sinir)": sonuc["p95_tahmin_araligi"],
             "%5 Kotumser Sinir": sonuc["p5_kotumser"],
         })
 
-    df_s9 = pd.DataFrame(satirlar_s9).sort_values("%95 Guven Hedefi", ascending=False)
+    df_s9 = pd.DataFrame(satirlar_s9).sort_values("%95 Tahmin Araligi (ust sinir)", ascending=False)
     st.dataframe(df_s9, use_container_width=True, hide_index=True)
 
     st.info(
         f"n_sim={n_sim_secim:,} ornek uretildi, kucukten buyuge siralandi, tam ortadaki deger "
-        "'Simulasyon Medyani' olarak alindi (=Merkezi Tahmin sekmesindeki 'ortalama' yontemiyle "
-        "neredeyse ayni cikmasi beklenir, cunku ikisi de ayni ortalama farki kullaniyor - fark "
-        "sadece burada gercekten rastgele orneklerin uretilip siralanmis olmasi). '(std kaba "
-        "varsayim)' etiketli satirlarda sadece 1 yil-yil fark var, yani standart sapma gercek "
-        "anlamda hesaplanamiyor - o tek farkin yarisi kaba bir tahmin olarak kullanildi."
+        "'Simulasyon Medyani' olarak alindi. Havuzlama sayesinde artik hicbir okul 90 tavanina "
+        "yapay olarak carpmiyor - volatilite gercekci ve karsilastirilabilir seviyede."
     )
 
     st.divider()
     st.markdown("### Dis Kaynakla Yan Yana")
-    st.caption("Bizim seffaf simulasyonumuzun %95 Guven Hedefi ile dis kaynagin Safe Target'i.")
+    st.caption("Bizim seffaf %95 tahmin araligimiz ile dis kaynagin 'Safe Target'i.")
 
     dis_kaynak_karsilastirma = pd.DataFrame([
         ["La Sapienza", 69.5, 80.3], ["Bologna", 69.5, 79.2], ["Milano Statale", 74.4, 80.6],
@@ -952,15 +1080,17 @@ with sekme9:
     ], columns=["Universite", "DisKaynak_SafeTarget_EU", "DisKaynak_SafeTarget_NonEU"])
 
     karsilastirma_s9 = dis_kaynak_karsilastirma.merge(
-        df_s9[["Universite", "%95 Guven Hedefi"]].assign(
-            Universite=df_s9["Universite"].str.replace(" (std kaba varsayim)", "", regex=False)
+        df_s9[["Universite", "%95 Tahmin Araligi (ust sinir)"]].assign(
+            Universite=df_s9["Universite"].str.replace(" ⚠️", "", regex=False)
         ),
         on="Universite", how="left"
-    ).rename(columns={"%95 Guven Hedefi": "Bizim %95 Guven Hedefi"})
+    )
     kolon_s9 = "DisKaynak_SafeTarget_EU" if tur_s9 == "EU" else "DisKaynak_SafeTarget_NonEU"
-    karsilastirma_s9["Fark (Dis - Bizim)"] = round(karsilastirma_s9[kolon_s9] - karsilastirma_s9["Bizim %95 Guven Hedefi"], 1)
+    karsilastirma_s9["Fark (Dis - Bizim)"] = round(
+        karsilastirma_s9[kolon_s9] - karsilastirma_s9["%95 Tahmin Araligi (ust sinir)"], 1
+    )
     st.dataframe(
-        karsilastirma_s9[["Universite", kolon_s9, "Bizim %95 Guven Hedefi", "Fark (Dis - Bizim)"]],
+        karsilastirma_s9[["Universite", kolon_s9, "%95 Tahmin Araligi (ust sinir)", "Fark (Dis - Bizim)"]],
         use_container_width=True, hide_index=True
     )
 
