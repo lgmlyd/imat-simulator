@@ -535,6 +535,13 @@ sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7, sekme8, sekme9 = st.tabs
 # SEKME 1 - Dogrulanmis temel veri, goz atma
 # ----------------------------------------------------------------------
 with sekme1:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Burada gecmis yillarda GERCEKTEN olan sinav "
+        "sonuclari var - hicbir sey tahmin degil, hepsi olmus bitmis, gercek. Bir fotograf "
+        "albumu gibi dusun: gecmiste ne olduysa onu gosteriyor, gelecegi tahmin etmiyor.\n\n"
+        "**Nasil kullanilir?** Hicbir seye dokunmana gerek yok - sadece asagi kaydir ve oku. "
+        "Butun diger sekmelerdeki tahminler, buradaki gercek sayilardan yola cikiyor."
+    )
     st.subheader("Tablo A - Ulusal Metrikler")
     st.dataframe(NATIONAL, use_container_width=True)
 
@@ -558,6 +565,14 @@ with sekme1:
 # SEKME 2 - Genel senaryo simulatoru (EU ve NonEU TAMAMEN AYRI hesaplanir)
 # ----------------------------------------------------------------------
 with sekme2:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Burada 'ya boyle olursa?' oyunu oynuyoruz. Mesela: "
+        "'ya sinava daha cok kisi girerse?' ya da 'ya kontenjan artarsa?' Sen bir ihtimal "
+        "hayal ediyorsun, program da 'o zaman taban puan su olur' diye tahmin ediyor.\n\n"
+        "**Nasil kullanilir?** Asagidaki kaydirma cubuklarini (slider) saga sola cek - her "
+        "cektiginde sayilar degisir. Kendi hayalindeki senaryoyu kur, sonucu asagidaki "
+        "tabloda gor."
+    )
     st.subheader("2026 icin ulusal senaryo simule et")
     st.caption(
         "EU ve Non-EU birbirinden bagimsiz iki havuzdur - ayri kontenjanlari, ayri "
@@ -656,6 +671,14 @@ with sekme2:
 # SEKME 3 - Universite ve yil bazinda ozel senaryo ekleme
 # ----------------------------------------------------------------------
 with sekme3:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Burada TAMAMEN kendi hayalindeki bir durumu "
+        "deneyebilirsin - mesela 'ya Bari'nin puani 2 puan duserse?' Bunu SEN soyluyorsun, "
+        "program gercek veriyle karsilastirip ne olacagini gosteriyor.\n\n"
+        "**Nasil kullanilir?** 1) Bir okul sec. 2) EU mu Non-EU mu oldugunu sec. 3) Hangi "
+        "yili baz almak istedigini sec. 4) Puani kac degistirmek istedigini yaz. Istersen "
+        "'gunluge ekle' diyerek bu senaryoyu kaydedebilirsin, sonra tekrar bakarsin."
+    )
     st.subheader("Ozel bir taban puan senaryosu ekle")
     st.caption('Ornek: "2026 Bari EU taban puani 2 puan duserse ne olur?"')
 
@@ -700,6 +723,15 @@ with sekme3:
 # SEKME 4 - EN KOTU SENARYO: gecmis verideki en sert sicramalari kullanir
 # ----------------------------------------------------------------------
 with sekme4:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** 'En kotu ihtimalde ne olur?' diye bakiyoruz - senin "
+        "hazirlikli olman icin. Sokaga cikarken 'yagmur yagmayabilir ama semsiyemi yine de "
+        "alayim' demek gibi dusun. Gecmiste bir okulun puani en cok ne kadar birden zipladiysa, "
+        "'yine oyle olursa' diye varsayiyoruz.\n\n"
+        "**Nasil kullanilir?** Asagi kaydir, tabloyu oku - en yuksek 'En Kotu Senaryo 2026' "
+        "sayisi olan okullar en riskli okullar. En altta '5 en riskli' listesi hazir seklinde "
+        "de var."
+    )
     st.subheader("En Kotu Senaryo (Worst Case) - 2026 Projeksiyonu")
     st.caption(
         "Bu sekme rastgele bir tahmin degil: her universite icin 2022-2025 arasinda "
@@ -801,6 +833,15 @@ with sekme4:
 # SEKME 5 - MERKEZI TAHMIN: gecmis TUM yillarin egilimini kullanir (uc deger degil)
 # ----------------------------------------------------------------------
 with sekme5:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Burada 'en kotu' degil, 'en OLASI' tahmini "
+        "gosteriyoruz - ne cok iyimser ne cok kotumser, ortasini buluyoruz. Bir siniftaki "
+        "cocuklarin boyunun ortalamasini bulmak gibi dusun - en uzun cocugu degil, "
+        "ortalamayi aliyoruz.\n\n"
+        "**Nasil kullanilir?** Iki farkli yontemi (Trend ve Momentum) karsilastirip aradaki "
+        "kaydirma cubugunu oynatarak ikisine ne kadar agirlik vermek istedigini secebilirsin. "
+        "Asagida her okul icin tahmini tabloyu goreceksin."
+    )
     st.subheader("Merkezi Tahmin (Ana Senaryo) - 2026 Projeksiyonu")
     st.caption(
         "Bu sekme 'en kotu senaryo' degil - onceki TUM yillarin (2022-2025) egilimini "
@@ -908,6 +949,14 @@ with sekme5:
 # SEKME 6 - YERLESIM TAHMINI: senin puanin + tercih listen -> 3 senaryo
 # ----------------------------------------------------------------------
 with sekme6:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Bu sekme SENIN icin! Puanini ve istedigin okullari "
+        "yaziyorsun, program da 'muhtemelen buraya girersin' diye tahmin ediyor - tipki "
+        "bir oyunda hangi seviyeyi gecebilecegini hesaplamak gibi.\n\n"
+        "**Nasil kullanilir?** 1) Puanini yaz. 2) EU mu Non-EU mu oldugunu sec. 3) Istedigin "
+        "okullari ONCELIK SIRASINA gore tikla (once en cok istedigini). 4) Asagidaki tabloda "
+        "her okul icin 'GECER' mi 'ACIK VAR' mi yaziyor gorursun."
+    )
     st.subheader("Kendi Puanin ve Tercih Listenle Yerlesim Tahmini")
     st.caption(
         "Puanini gir, tercih listeni SIRAYLA sec (ilk sectigin = 1. tercihin). "
@@ -999,69 +1048,87 @@ with sekme6:
 # SEKME 7 - TERIMLER & METODOLOJI: her terimin ve her hesabin acik aciklamasi
 # ----------------------------------------------------------------------
 with sekme7:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Diger sekmelerde zor kelimeler gordugunde ('volatilite', "
+        "'Base Case' gibi) buraya gel - hepsini en basit sekilde, ana dilinde anlatiyoruz. "
+        "Hicbir hesap yapmiyoruz, sadece kelimeleri aciyoruz.\n\n"
+        "**Nasil kullanilir?** Merak ettigin kelimeyi bul, oku. Sirayla okumana gerek yok."
+    )
     st.subheader("Terimler Sozlugu ve Metodoloji")
     st.caption("Bu sekme hicbir hesap yapmaz - sadece diger sekmelerde gordugun terimleri ve formulleri acar.")
 
     st.markdown("### Puanlama Sistemi (IMAT sinavi)")
     st.markdown(
-        "- **Toplam soru**: 60\n"
-        "- **Dogru cevap**: +1.5 puan\n"
-        "- **Yanlis cevap**: -0.4 puan\n"
-        "- **Bos birakilan**: 0 puan\n"
-        "- **Matematiksel tavan**: 60 x 1.5 = **90 puan** (60 sorunun hepsi dogru olsa bile bu sinirin uzerine cikilamaz - "
-        "simulatordeki tum tahminler artik bu tavana gore sinirlandiriliyor)"
+        "🧒 Sinavda 60 soru var. Her DOGRU cevap sana 1.5 puan verir, her YANLIS cevap "
+        "senden 0.4 puan alir, BOS birakirsan hicbir sey olmaz. Yani en fazla alabilecegin "
+        "puan, 60 sorunun HEPSINI dogru yaparsan olur: 60 x 1.5 = **90 puan**. Bu, asilamayan "
+        "bir tavan - tipki bir odanin tavanindan daha yukari zipliyamamana benzer. Bu yuzden "
+        "simulatordeki HICBIR tahmin 90'i gecemez, biz de artik hicbir yerde gecirmiyoruz."
     )
 
     st.divider()
     st.markdown("### Base Case / Merkezi Tahmin / En Kotu Senaryo farki")
     st.markdown(
-        "Ucu de ayni ortak fonksiyonu (`taban_tahmini_hesapla`) farkli 'yontem' parametresiyle cagirir. "
-        "Fark, 2022-2025 arasindaki yil-yil taban puan farklarindan (siçramalardan) hangisinin secildigidir:\n\n"
-        "- **Base Case** (`yontem=\"son_fark\"`): SADECE en son iki yilin farkini kullanir (2024->2025 sicramasi). "
-        "'Bir onceki yilki trend aynen devam ederse ne olur' sorusuna cevap verir. En az veri kullanan, en 'guncel' yontem.\n"
-        "- **Merkezi Tahmin** (`yontem=\"ortalama\"`): 2022-2025 arasindaki TUM yil-yil farklarinin ORTALAMASINI alir. "
-        "Tek bir yilin sapmasindan (mesela 2023'un dusuk oldugu MUR gecis yilindan) daha az etkilenir - bu yuzden "
-        "'en olasi/dengeli senaryo' olarak sunulur.\n"
-        "- **En Kotu Senaryo** (`yontem=\"max\"`): 2022-2025 arasinda gerceklesmis EN BUYUK pozitif sicramayi alir. "
-        "Yani 'gecmiste yasanan en sert artis 2026'da da tekrar olursa ne olur' sorusuna cevap verir - uydurma bir "
-        "yuzde degil, gercek gecmis veriden.\n\n"
-        "Uçune de ayrica bir **'baski etkisi'** eklenir: eger 2026 kontenjani, son gecerli yila gore %15'ten az arttiysa "
-        "(ya da azaldiysa), bu \"kontenjan sikismasi\" taban puanini yukari iter. Bu etkinin buyuklugu sekmeden sekmeye "
-        "degisen bir **hassasiyet katsayisiyla** carpilir (Worst Case'te daha yuksek, Merkezi'de daha dusuk tutulur - "
-        "cunku en kotu senaryoda kontenjan baskisinin de en sert sekilde hissedilecegi varsayilir)."
+        "🧒 Ucunu de yaparken ayni oyuncagi kullaniyoruz, sadece 'gecmiste ne olmustu' diye "
+        "sordugumuzda farkli yillara bakiyoruz - tipki bir arkadasina 'geciken otobus ne "
+        "kadar gecikir' diye sorarken, ya SADECE dun gecikmeyi (Base Case), ya TUM haftanin "
+        "ortalamasini (Merkezi), ya da hic gormedigin en kotu gecikmeyi (En Kotu) sormak "
+        "gibi:\n\n"
+        "- **Base Case**: 'geçen sene ne kadar degistiyse, bu sene de o kadar degisir' diyoruz "
+        "- sadece en SON iki yila bakiyoruz, en 'taze' tahmin.\n"
+        "- **Merkezi Tahmin**: 'ortalama ne kadar degisti' diyoruz - butun yillari topluyoruz, "
+        "ortasini buluyoruz. Tek bir garip yildan (mesela cok tuhaf bir yildan) daha az "
+        "etkilenir, en 'dengeli' tahmin.\n"
+        "- **En Kotu Senaryo**: 'en cok ne zaman zipladiysa, YINE oyle zipladigini' varsayiyoruz "
+        "- korkuluk gibi, en kotu ihtimale hazirlik.\n\n"
+        "Ucune de bir de kucuk bir 'itis' ekliyoruz: eger 2026'da o okulun kontenjani (yer "
+        "sayisi) fazla artmadiysa, taban puani biraz daha yukari itiyoruz - cunku daha az yer "
+        "= daha cok yarisma = daha yuksek puan gerekir, tipki oyuncakcida az oyuncak kalinca "
+        "herkesin ona daha cok kosmasi gibi."
     )
 
     st.divider()
     st.markdown("### Yerlesim Tahmini sekmesindeki kolonlar")
     st.markdown(
-        "- **Son Yil / Son Puan**: 2022-2025 arasinda o universite icin verinin bulundugu en guncel yil ve o yildaki gercek taban puan\n"
-        "- **Base Case 2026 / Merkezi 2026 / En Kotu 2026**: yukarida aciklanan uc yontemin her biriyle hesaplanan 2026 tahmini\n"
-        "- **Fark (Base Case)**: senin girdigin puan EKSI Base Case tahmini. Pozitifse (+) o universiteye Base Case senaryosunda "
-        "girme ihtimalin var demektir; negatifse (-) o kadar puan acigin var demektir\n"
-        "- **Durum**: Fark (Base Case) >= 0 ise 'GECER', degilse 'ACIK VAR'"
+        "🧒 - **Son Yil / Son Puan**: o okul icin bildigimiz EN YENI gercek sonuc, hangi yildan\n"
+        "- **Base Case 2026 / Merkezi 2026 / En Kotu 2026**: yukarida anlatilan uc farkli tahmin yontemi\n"
+        "- **Fark (Base Case)**: senin puanin EKSI Base Case tahmini. Artiysa (+) yeterli demektir, "
+        "eksiyse (-) o kadar puana daha ihtiyacin var demektir\n"
+        "- **Durum**: Fark sifir ya da daha buyukse 'GECER' yaziyor, degilse 'ACIK VAR' yaziyor - "
+        "'acik' senin eksigin demek"
     )
 
     st.divider()
     st.markdown("### Diger terimler")
     st.markdown(
-        "- **EU / Yerli Havuzu vs Non-EU Havuzu**: Italyan universitelerinde AB vatandaslari (+ bazi esdeger statuler) "
-        "ile AB disi/yurt disi ikametli adaylar icin ayri kontenjan ve ayri taban puan olusur - iki havuz birbirinden "
-        "bagimsizdir, ayni sinav olsa da rekabet ortami farklidir\n"
-        "- **Rekabet Endeksi**: aday sayisi / kontenjan sayisi. Yukseldikce (kontenjana gore daha cok aday) taban "
-        "puanin da yukselmesi beklenir\n"
-        "- **Scorrimento**: ilk yerlesim sonrasi bosalan yerlerin (vazgecenler yuzunden) siradaki adaylara otomatik "
-        "kaydirilarak dagitilmasi sureci - Italyan sisteminde birkac ay surebilir\n"
-        "- **Bosluk yili (⚠️)**: o universite icin bazi yillarda veri bulunamadigi/eksik oldugu icin projeksiyonun daha "
-        "eski bir yildan yapildigi anlamina gelir - bu isaretli satirlar diger satirlara gore daha temkinli okunmali\n"
-        "- **Tahmin Araligi vs Guven Araligi**: 'Seffaf Monte Carlo Simulasyonu' sekmesinde bu ikisinin farki ve "
-        "'Volatilite Index'in shrinkage/pooled yontemle nasil hesaplandigi ayrintili anlatiliyor - dis kaynagin "
-        "kullandigi (ama tanimlamadigi) terimlerin doğrusu icin oraya bak"
+        "🧒 - **EU / Yerli Havuzu vs Non-EU Havuzu**: Italya'da iki ayri kuyruk var - biri AB "
+        "vatandaslari icin, biri AB disindan/yurt disindan gelenler icin. Ayni sinavi "
+        "veriyorsunuz ama kuyruklar ayri, yani rekabet de ayri.\n"
+        "- **Rekabet Endeksi**: kac kisi yariyor / kac yer var. Bu sayi buyudukce (cok kisi, az "
+        "yer) taban puanin da yukselmesi beklenir - tipki bir oyuncak dukkaninda az oyuncak "
+        "kalinca fiyatinin artmasi gibi.\n"
+        "- **Scorrimento**: ilk yerlesimden sonra bazi kisiler vazgecince, bosalan yerler "
+        "SIRADAKI kisilere otomatik verilir - bu birkac ay surer, bir kuyrukta yavas yavas "
+        "one gitmek gibi dusun.\n"
+        "- **Bosluk yili (⚠️)**: o okul icin bazi yillarin verisi eksik/kayip - yani daha az "
+        "bilgiyle tahmin yaptik, biraz daha temkinli bak.\n"
+        "- **Tahmin Araligi vs Guven Araligi ve Cok Seviyeli Simulasyon**: bunlar 'Seffaf Monte "
+        "Carlo Simulasyonu' sekmesinde en basit dille anlatiliyor - oraya bak."
     )
 
 # ----------------------------------------------------------------------
 # SEKME 8 - DIS KAYNAK KARSILASTIRMA: yuklenen PDF raporlarindaki veriyle kiyas
 # ----------------------------------------------------------------------
 with sekme8:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Sen bana iki PDF gonderdin - baska birinin yaptigi "
+        "tahminler. Biz de bizim tahminlerimizi onlarinkiyle yan yana koyduk, 'ikisi birbirine "
+        "benziyor mu?' diye bakiyoruz. Iki farkli kisinin ayni bulmacayi cozup cevaplarini "
+        "karsilastirmasi gibi dusun.\n\n"
+        "**Nasil kullanilir?** Asagi kaydir, iki tabloya bak. Sayilar birbirine yakinsa, ikisi "
+        "de muhtemelen dogruya yakin. Cok farkliysa, en azindan biri (ya da ikisi de) "
+        "yanilmis olabilir."
+    )
     st.subheader("Dis Kaynak Tahminleriyle Karsilastirma")
     st.warning(
         "Bu sekmedeki veri BU PROJENIN TEMEL VERISI DEGILDIR - ucretli/harici bir 'tahmin' urununden "
@@ -1133,6 +1200,16 @@ with sekme8:
 # SEKME 9 - SEFFAF MONTE CARLO SIMULASYONU: gercek simulasyon, formul acik
 # ----------------------------------------------------------------------
 with sekme9:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** Burada bir ZAR OYUNU oynuyoruz - ama gercek bir zar "
+        "degil, bilgisayarin icinde 100 BIN kere sanal bir zar atiyoruz. Her atista '2026'da "
+        "bu okulun puani ne olabilir' diye bir tahmin cikiyor. 100 bin tahmini kucukten "
+        "buyuge diziyoruz, ortasina bakiyoruz, en yuksek uctekilere bakiyoruz - boylece hem "
+        "'en olasi' hem 'en kotu ihtimalde ne olur' sorularina cevap buluyoruz.\n\n"
+        "**Nasil kullanilir?** Asagida 2 secenek var (Tek Seviyeli / Cok Seviyeli) - hangisini "
+        "secersen sec, tabloyu okumak yeterli. Merak edersen alttaki acilir kutulari (▸) "
+        "tikla, her sey en basit dilde anlatiliyor."
+    )
     st.subheader("Seffaf Monte Carlo Simulasyonu")
     st.caption(
         "Bu sekme dis kaynagin yaptigini iddia ettigi seyi GERCEKTEN yapiyor - ve her adimi "
@@ -1140,36 +1217,87 @@ with sekme9:
     )
 
     st.error(
-        "**Onemli duzeltme**: bir onceki versiyonda, simulasyon 90 puan (matematiksel tavan) "
-        "tavanina CARPTIGINDA bu deger sanki gercek bir tahminmis gibi ('%95 guvenli hedef: 90') "
-        "gosteriliyordu. Bu YANLIS - 90'a carpmak 'guvenli hedef 90' demek DEGIL, 'modelin bu "
-        "okul icin anlamli bir tahmin uretemedigi' demektir (belirsizlik o kadar buyuk ki ust "
-        "sinir teorik maksimuma dayaniyor). Artik boyle durumlar sayi olarak degil, acikca "
-        "**'GUVENILMEZ'** etiketiyle gosteriliyor."
+        "**Onemli duzeltme**: 🧒 daha once, zar oyunumuz bazen 'en yuksek mumkun puan olan "
+        "90'i al, o zaman guvendesin' gibi sacma bir sey soyluyordu. Bu, '90 almazsan girmeni "
+        "GARANTI EDEMEYIZ' demenin sacma bir yoluydu - cunku 90 zaten hic kimsenin alamayacagi "
+        "kadar yuksek (60 sorunun HEPSI dogru olmali). Bunu duzelttik: artik boyle durumlarda "
+        "sayi yazmiyoruz, direkt **'GUVENILMEZ'** yaziyoruz - yani 'biz de bilmiyoruz, veri "
+        "yetersiz' diyoruz, uydurmuyoruz."
     )
 
-    with st.expander("Terminoloji notu: 'Guven Araligi' mi, 'Tahmin Araligi' mi?"):
+    with st.expander("🧒 'Tahmin Araligi' ile 'Guven Araligi' ayni sey mi?"):
         st.markdown(
-            "Klasik **confidence interval (guven araligi)**, tekrarlanan orneklemede araligin "
-            "%95 ihtimalle GERCEK POPULASYON PARAMETRESINI icerecegini soyler. Ama bizim sorumuz "
-            "bu degil - '2026'da GERCEKLESECEK TEK BIR taban puani ne olacak' diye soruyoruz. "
-            "Bunun dogru karsiligi **prediction interval (tahmin araligi)**'dir - bu yuzden "
-            "'Guven Hedefi' degil **'%95 Tahmin Araligi'** basligini kullaniyoruz."
+            "Hayir, ikisi FARKLI sorulara cevap verir - kucuk bir ornekle anlatalim:\n\n"
+            "Diyelim sinifin ortalama boyunu merak ediyorsun. **Guven araligi**, 'sinifin "
+            "GERCEK ortalama boyu 140-145 cm arasindadir' gibi bir cevap verir - yani "
+            "GRUBUN ozelligi hakkinda.\n\n"
+            "Ama biz farkli bir soru soruyoruz: 'YARIN sinifa YENI gelecek TEK bir cocugun "
+            "boyu ne olur?' Bu soru daha zor, cunku sadece grubun ortalamasini degil, o "
+            "tek cocugun kendi farklarini da hesaba katmali. Bunun cevabina **tahmin araligi** "
+            "denir, ve her zaman guven araligindan biraz daha genis cikar - cunku iki turlu "
+            "belirsizligi birden tasir. Biz burada 'gelecek yilin TEK bir taban puani ne "
+            "olur' diye sordugumuz icin, dogru arac tahmin araligidir."
         )
 
-    with st.expander("Tek Seviyeli vs Cok Seviyeli (Multi-Level) simulasyon farki", expanded=True):
+    with st.expander("🧒 Volatilite (oynaklik) ne demek, nasil hesapladik?"):
         st.markdown(
-            "**Tek Seviyeli**: her okulun kendi ham yil-yil farklarindan TEK bir volatilite "
-            "hesaplanir (shrinkage/pooled). Sorun: TUM okullarda ayni anda yasanan ulusal "
-            "sicramalar (2023->2024 gibi) okulun 'kendine ozgu' volatilitesine karisir.\n\n"
-            "**Cok Seviyeli (Hierarchical)**: iki ayri katmana ayrilir -\n"
-            "- **Seviye 1 (Ulusal)**: her yil-gecisinde TUM okullarin ORTALAMA farki - "
-            "sisteme aninda etki eden ortak sok (kontenjan/mevzuat degisikligi, sinav zorlugu)\n"
-            "- **Seviye 2 (Okula Ozgu)**: okulun kendi farkindan ulusal etki cikarildiktan "
-            "SONRA kalan 'kalinti' - GERCEKTEN o okula ozgu oynaklik\n\n"
-            "Simulasyonda her iki katman AYRI AYRI orneklenip toplanir. Sonuc: ulusal ortak "
-            "gurultu artik okula ozgu volatiliteyi sismemis olur - genelde cok daha kucuk ve "
-            "gercekci bir okul-bazli volatilite cikar."
+            "**Volatilite**, bir seyin yildan yila NE KADAR ZIPLADIGINI olcer. Bir topu "
+            "dusun: bazi toplar hafif ziplar (dusuk volatilite), bazilari cok sert ziplar "
+            "(yuksek volatilite).\n\n"
+            "Sorun su: bir okulun sadece 2-3 yillik verisi var, bu COK az. Sadece 2-3 "
+            "ziplamaya bakip 'bu topun ziplama gucu tam olarak budur' demek riskli - "
+            "sansa da bagli olabilir. Bu yuzden akilli bir numara yapiyoruz: sadece o "
+            "okulun kendi ziplamalarina degil, TUM okullarin ziplamalarina birden bakiyoruz, "
+            "ve okulun kendi verisi azsa, 'digerleri nasil ziplıyorsa o da oyle ziplar' "
+            "diye varsayiyoruz biraz. Verisi ne kadar azsa, digerlerine o kadar cok "
+            "guveniyoruz - buna istatistikte 'havuzlama' denir."
+        )
+
+    with st.expander("🧒 Tek Seviyeli ile Cok Seviyeli (Multi-Level) arasindaki fark ne?", expanded=True):
+        st.markdown(
+            "Bunu bir sinif ornegiyle anlatalim. Diyelim butun sinif ayni gun grip oldu - "
+            "HERKESIN notu dustu. Ama Ahmet'in AYRICA kendi sinav korkusu var, o da HER "
+            "sinavda biraz daha dusuk not aliyor.\n\n"
+            "**Tek Seviyeli** yontem, Ahmet'in notundaki degisimi TEK bir sebebe bagliyor - "
+            "grip mi, korku mu, ayirt etmiyor, hepsini birlikte 'Ahmet'in oynakligi' sayiyor. "
+            "Bu yanlis olur, cunku grip HERKESTE var, sadece Ahmet'e ozel degil.\n\n"
+            "**Cok Seviyeli** yontem daha akillica: once 'butun sinifi ayni anda etkileyen "
+            "sey ne kadardi' diye bakar (grip - SEVIYE 1, ULUSAL), sonra bunu cikarip "
+            "'Ahmet'e OZEL ne kadar kaldi' diye bakar (korku - SEVIYE 2, OKULA OZGU). "
+            "Iki ayri zar atiyoruz - biri 'bu yil butun okullari birden etkileyen sansizlik' "
+            "icin, biri 'sadece bu okula ozel sansizlik' icin - sonra ikisini topluyoruz. "
+            "Boylece bir okulun 'gercek' oynakligini, herkesi etkileyen genel gurultudan "
+            "ayirabiliyoruz - ki bu cok daha dogru bir cevap verir."
+        )
+
+    with st.expander("🧒 '2023->2024'u hesaptan cikardik' derken ne demek istiyoruz?"):
+        st.markdown(
+            "2023'ten 2024'e gecerken HER okulun puani birden cok fazla yukseldi (~21-22 "
+            "puan!) - bu, sinifin toplu grip olmasi gibi, TEK SEFERLIK, ozel bir sebepten "
+            "oldu (muhtemelen sinavin yapisi/kurumu degisti). Bunun 2026'da TEKRAR olmasini "
+            "beklemiyoruz. Eger bunu hesaba normal bir 'ziplamaymis' gibi katarsak, "
+            "makine 'her yil boyle bir sey olabilir' sanip cok abartili tahminler uretir. "
+            "Bu yuzden bu ozel yili, 'bu ola olamayan bir sey, tekrar olmaz' diyerek "
+            "hesaptan cikariyoruz - istersen asagidaki kutucuktan bunu tekrar acabilirsin."
+        )
+
+    with st.expander("🧒 'k' (havuzlama gucu) ne ise yariyor?"):
+        st.markdown(
+            "Bu bir DUGME - 'okulun kendi verisine mi, yoksa digerlerinin ortalamasina mi "
+            "daha cok guveneyim' diye ayarliyor. k KUCUKSE ('1' gibi), okulun kendi verisine "
+            "daha cok guveniriz - az veri olsa bile. k BUYUKSE ('10' gibi), 'okulun kendi "
+            "verisi cok az, digerlerine bakayim' deriz. Ortasi (3) iyi bir denge - ne cok "
+            "kendine guveniyoruz ne cok digerlerine."
+        )
+
+    with st.expander("🧒 'GUVENILMEZ' yazan sonuclar ne demek?"):
+        st.markdown(
+            "Bazi okullarda veri o kadar az/oynak ki, zar oyunumuz cok genis bir sonuc "
+            "araligi cikariyor - o kadar genis ki, ust siniri neredeyse imkansiz olan 90'a "
+            "(mumkun en yuksek puan) dayaniyor. Boyle bir durumda 'tahminimiz 90' demek "
+            "yalan soylemek gibi olur - gercekte 'bilmiyoruz' demek gerekir. Bu yuzden "
+            "boyle sonuclari sayi olarak degil, direkt **GUVENILMEZ** yazarak gosteriyoruz - "
+            "durustluk, uydurma bir kesinlik gostermekten daha onemli."
         )
 
     gecis_yili_secim = st.checkbox(
