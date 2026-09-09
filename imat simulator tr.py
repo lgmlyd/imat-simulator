@@ -186,6 +186,74 @@ def taban_tahmini_hesapla(uni, tur_idx, yontem="ortalama", sensitivite=0.75):
     return son_yil, son_puan, round(sicrama, 1), (None if koltuk_degisim_yuzde is None else round(koltuk_degisim_yuzde, 1)), tahmin_2026
 
 
+def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75):
+    """
+    SEFFAF Monte Carlo simulasyonu - her adimi acik:
+      1) 2022-2025 arasi ardisik yil farklarini toplar (taban_tahmini_hesapla ile AYNI veri)
+      2) Bu farklarin ORTALAMASINI ve ORNEKLEM STANDART SAPMASINI (ddof=1) hesaplar -
+         "volatilite" burada tam olarak budur, baska bir gizli katsayi yok
+      3) n_sim (varsayilan 100.000) adet rastgele "2026 sicramasi" ornekler:
+         Normal(ortalama_fark, std_fark) dagiliminda
+      4) Her orneklenen sicramaya, taban_tahmini_hesapla'daki AYNI kontenjan
+         baski etkisi eklenir (tutarlilik icin)
+      5) Sonuclar 0-90 araliginda sinirlanir (60 soru x 1.5 puan = matematiksel tavan)
+      6) SIMULASYON MEDYANI = n_sim sonucu kucukten buyuge SIRALAYIP tam ortadaki
+         degeri almak (np.median) - "simulation median" tanimiyla birebir ayni
+      7) GUVEN HEDEFI (%95) = sirali sonuclarin 95. yuzdelik dilimi - yani
+         orneklerin %95'i bu degerin ALTINDA kaliyor
+    Sadece 2 veri noktasi (1 fark) varsa std hesaplanamaz - bu durumda std,
+    o tek farkin yarisi olarak KABACA varsayilir ve arayuzde acikca belirtilir.
+    """
+    yillar_puan = TABAN_PUANLAR.get(uni, {})
+    degerler = []
+    for yil in [2022, 2023, 2024, 2025]:
+        cift = yillar_puan.get(yil, (None, None))
+        deger = cift[tur_idx]
+        if deger is not None:
+            degerler.append((yil, deger))
+    if len(degerler) < 2:
+        return None
+
+    farklar = [degerler[i + 1][1] - degerler[i][1] for i in range(len(degerler) - 1)]
+    son_yil, son_puan = degerler[-1]
+
+    ort_fark = float(np.mean(farklar))
+    std_kaba_varsayim = False
+    if len(farklar) >= 2:
+        std_fark = float(np.std(farklar, ddof=1))
+    else:
+        std_fark = abs(farklar[0]) * 0.5
+        std_kaba_varsayim = True
+
+    yillar_koltuk = KONTENJAN_TARIHSEL.get(uni, {})
+    koltuk_son_yil = (yillar_koltuk.get(son_yil, (None, None))[tur_idx]
+                       if son_yil in yillar_koltuk else None)
+    koltuk_2026 = yillar_koltuk.get(2026, (None, None))[tur_idx] if 2026 in yillar_koltuk else None
+    if koltuk_son_yil and koltuk_2026 and koltuk_son_yil > 0:
+        koltuk_degisim_yuzde = (koltuk_2026 - koltuk_son_yil) / koltuk_son_yil * 100
+    else:
+        koltuk_degisim_yuzde = None
+    baski_etkisi = 0.0
+    if koltuk_degisim_yuzde is not None and koltuk_degisim_yuzde < 15:
+        baski_etkisi = (15 - koltuk_degisim_yuzde) / 10 * sensitivite
+
+    rng = np.random.default_rng(seed)
+    ornek_siçramalar = rng.normal(loc=ort_fark, scale=max(std_fark, 0.01), size=n_sim)
+    sonuclar = son_puan + ornek_siçramalar + baski_etkisi
+    sonuclar = np.clip(sonuclar, 0.0, 90.0)
+    sonuclar_sirali = np.sort(sonuclar)
+
+    return {
+        "son_yil": son_yil, "son_puan": son_puan,
+        "ort_fark": round(ort_fark, 2), "std_fark": round(std_fark, 2),
+        "std_kaba_varsayim": std_kaba_varsayim,
+        "medyan": round(float(np.median(sonuclar_sirali)), 1),
+        "p95_guven_hedefi": round(float(np.percentile(sonuclar_sirali, 95)), 1),
+        "p5_kotumser": round(float(np.percentile(sonuclar_sirali, 5)), 1),
+        "n_sim": n_sim,
+    }
+
+
 # 2026 IMAT resmi zaman cizelgesi (Decreto 1005/2026 ve MUR takvimi)
 SCORRIMENTO_TAKVIMI_2026 = [
     ("29 Eylul 2026", "Sinav gunu"),
@@ -226,10 +294,10 @@ st.title("IMAT 2022-2026 Dogrulanmis Veri + Kriz ve Kontenjan Simulatoru")
 st.caption("Temel veriler 2022-2025 dogrulama surecinden ve 2026 resmi kontenjan kararindan geliyor. "
            "Sekmelerdeki kontrollerle senaryo uretebilirsin - hicbiri temel veriyi degistirmez.")
 
-sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7, sekme8 = st.tabs([
+sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7, sekme8, sekme9 = st.tabs([
     "Dogrulanmis Temel Veri", "Senaryo Simulatoru", "Ozel Taban Puan Ekleyici",
     "En Kotu Senaryo (Worst Case)", "Merkezi Tahmin (Ana Senaryo)", "Yerlesim Tahmini (Tercih Listem)",
-    "Terimler & Metodoloji", "Dis Kaynak Karsilastirma"
+    "Terimler & Metodoloji", "Dis Kaynak Karsilastirma", "Seffaf Monte Carlo Simulasyonu"
 ])
 
 # ----------------------------------------------------------------------
@@ -826,6 +894,75 @@ with sekme8:
         })
 
     st.dataframe(pd.DataFrame(karsilastirma_satirlari), use_container_width=True, hide_index=True)
+
+# ----------------------------------------------------------------------
+# SEKME 9 - SEFFAF MONTE CARLO SIMULASYONU: gercek simulasyon, formul acik
+# ----------------------------------------------------------------------
+with sekme9:
+    st.subheader("Seffaf Monte Carlo Simulasyonu")
+    st.caption(
+        "Bu sekme dis kaynagin yaptigini iddia ettigi seyi GERCEKTEN yapiyor - ve her adimi "
+        "acikca gosteriyor. 'Simulasyon Medyani' burada gercekten 100.000 orneklemin kucukten "
+        "buyuge siralanip tam ortasindaki deger; 'volatilite' de gercekten 2022-2025 arasindaki "
+        "yil-yil farklarin standart sapmasi - gizli/varsayimsal bir katsayi degil."
+    )
+
+    n_sim_secim = st.select_slider("Orneklem sayisi (n_sim)", options=[1000, 10000, 100000, 500000], value=100000)
+    tur_s9 = st.radio("Kontenjan Turu", ["EU", "NonEU"], horizontal=True, key="s9_tur")
+    tur_idx_s9 = 0 if tur_s9 == "EU" else 1
+
+    satirlar_s9 = []
+    for uni in UNIVERSITELER:
+        sonuc = monte_carlo_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75)
+        if sonuc is None:
+            continue
+        satirlar_s9.append({
+            "Universite": uni + (" (std kaba varsayim)" if sonuc["std_kaba_varsayim"] else ""),
+            "Son Puan": sonuc["son_puan"],
+            "Ort. Yillik Fark": sonuc["ort_fark"],
+            "Volatilite (std)": sonuc["std_fark"],
+            "Simulasyon Medyani": sonuc["medyan"],
+            "%95 Guven Hedefi": sonuc["p95_guven_hedefi"],
+            "%5 Kotumser Sinir": sonuc["p5_kotumser"],
+        })
+
+    df_s9 = pd.DataFrame(satirlar_s9).sort_values("%95 Guven Hedefi", ascending=False)
+    st.dataframe(df_s9, use_container_width=True, hide_index=True)
+
+    st.info(
+        f"n_sim={n_sim_secim:,} ornek uretildi, kucukten buyuge siralandi, tam ortadaki deger "
+        "'Simulasyon Medyani' olarak alindi (=Merkezi Tahmin sekmesindeki 'ortalama' yontemiyle "
+        "neredeyse ayni cikmasi beklenir, cunku ikisi de ayni ortalama farki kullaniyor - fark "
+        "sadece burada gercekten rastgele orneklerin uretilip siralanmis olmasi). '(std kaba "
+        "varsayim)' etiketli satirlarda sadece 1 yil-yil fark var, yani standart sapma gercek "
+        "anlamda hesaplanamiyor - o tek farkin yarisi kaba bir tahmin olarak kullanildi."
+    )
+
+    st.divider()
+    st.markdown("### Dis Kaynakla Yan Yana")
+    st.caption("Bizim seffaf simulasyonumuzun %95 Guven Hedefi ile dis kaynagin Safe Target'i.")
+
+    dis_kaynak_karsilastirma = pd.DataFrame([
+        ["La Sapienza", 69.5, 80.3], ["Bologna", 69.5, 79.2], ["Milano Statale", 74.4, 80.6],
+        ["Milano Bicocca", 72.2, 79.4], ["Padova", 67.4, 77.6], ["Pavia", 68.1, 77.3],
+        ["Torino", 67.2, 75.2], ["Tor Vergata", 65.6, 85.0], ["Napoli Federico II", 67.5, 73.3],
+        ["Parma", 65.7, 83.6], ["Verona", 65.6, 75.1], ["Catania", 62.7, 70.8],
+        ["Luigi Vanvitelli", 63.7, 69.3], ["Messina", 63.7, 65.9], ["Cagliari", 63.6, 76.5],
+        ["Bari", 63.5, 78.4],
+    ], columns=["Universite", "DisKaynak_SafeTarget_EU", "DisKaynak_SafeTarget_NonEU"])
+
+    karsilastirma_s9 = dis_kaynak_karsilastirma.merge(
+        df_s9[["Universite", "%95 Guven Hedefi"]].assign(
+            Universite=df_s9["Universite"].str.replace(" (std kaba varsayim)", "", regex=False)
+        ),
+        on="Universite", how="left"
+    ).rename(columns={"%95 Guven Hedefi": "Bizim %95 Guven Hedefi"})
+    kolon_s9 = "DisKaynak_SafeTarget_EU" if tur_s9 == "EU" else "DisKaynak_SafeTarget_NonEU"
+    karsilastirma_s9["Fark (Dis - Bizim)"] = round(karsilastirma_s9[kolon_s9] - karsilastirma_s9["Bizim %95 Guven Hedefi"], 1)
+    st.dataframe(
+        karsilastirma_s9[["Universite", kolon_s9, "Bizim %95 Guven Hedefi", "Fark (Dis - Bizim)"]],
+        use_container_width=True, hide_index=True
+    )
 
 st.divider()
 st.caption("Temel veri, 2022-2025 IMAT capraz kaynak dogrulamasindan alinmistir (Testbusters, Locomotive, Futura, "
