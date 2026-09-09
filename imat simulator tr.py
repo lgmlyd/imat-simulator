@@ -547,19 +547,28 @@ SCORRIMENTO_TAKVIMI_2026 = [
 ]
 
 # Testbusters'in pozisyon-bazli olasilik kurali (ilk atamadaki SIRA NUMARANA gore, puan degil)
-def sansa_birakma_analizi(n_soru, elenebilen_sik, dogru_puan=1.5, yanlis_puan=-0.4, toplam_sik=5):
+def sansa_birakma_analizi(n_soru, elenebilen_sik, dogru_puan=1.5, yanlis_puan=-0.4, toplam_sik=5,
+                            ampirik_dogru=None, ampirik_toplam=None):
     """
     BINOM DAGILIMI ile 'bilmedigin sorulari sansa birakirsan ne olur' analizi.
-    Her soruda 'toplam_sik' secenek var; elenebilen_sik kadarini eleyebiliyorsan,
-    kalan (toplam_sik - elenebilen_sik) secenek arasinda rastgele isaretliyorsun ->
-    dogru olma olasiligi p = 1 / (toplam_sik - elenebilen_sik).
-    n_soru tane BAGIMSIZ boyle soru isaretlersen, dogru sayin X ~ Binom(n_soru, p)
-    dagilimini izler. Bu fonksiyon: p, beklenen deger (tek soru ve toplam), ve X'in
-    olasi her degeri icin toplam puan katkisi + olasiligini dondurur.
+    VARSAYILAN: her siktan esit sansla sectigini varsayar -> p = 1/(kalan sik sayisi).
+    AMPIRIK MOD: ampirik_toplam ve ampirik_dogru verilirse (senin GECMISTE bu durumda
+    kac kez dogru bildigin), p ARTIK 1/kalan DEGIL, SENIN KENDI GECMIS performansindan
+    hesaplanir - Laplace (add-1) duzeltmesiyle: p = (dogru+1)/(toplam+2). Bu duzeltme,
+    kucuk orneklemde '7'de 7 yanlis = %0 kesin yanlis yaparim' gibi asiri iddiali bir
+    sonuca varmayi ENGELLER - hala cok dusuk bir p verir ama 'imkansiz' demez, cunku
+    n=7 gibi kucuk bir orneklemde gercek oran %0 ile %35 arasinda herhangi bir yerde
+    olabilir (bkz. arayuzdeki guven araligi notu).
     """
     if elenebilen_sik >= toplam_sik:
         return None
-    p = 1.0 / (toplam_sik - elenebilen_sik)
+    p_varsayilan = 1.0 / (toplam_sik - elenebilen_sik)
+    if ampirik_toplam is not None and ampirik_toplam > 0:
+        p = (ampirik_dogru + 1) / (ampirik_toplam + 2)  # Laplace/add-1 duzeltmesi
+        p_ham = ampirik_dogru / ampirik_toplam
+    else:
+        p = p_varsayilan
+        p_ham = None
     ev_soru = p * dogru_puan + (1 - p) * yanlis_puan
     ev_toplam = ev_soru * n_soru
 
@@ -573,9 +582,28 @@ def sansa_birakma_analizi(n_soru, elenebilen_sik, dogru_puan=1.5, yanlis_puan=-0
         dagilim.append({"Dogru Sayisi (X)": x, "Puan Katkisi": round(katki, 2), "Olasilik": round(olasilik, 4)})
 
     return {
-        "p": p, "ev_soru": round(ev_soru, 3), "ev_toplam": round(ev_toplam, 2),
+        "p": p, "p_varsayilan": p_varsayilan, "p_ham": p_ham,
+        "ev_soru": round(ev_soru, 3), "ev_toplam": round(ev_toplam, 2),
         "olumlu_olasilik": round(olumlu_olasilik, 3), "dagilim": dagilim,
     }
+
+
+
+
+def wilson_guven_araligi(dogru, toplam, z=1.96):
+    """
+    Wilson skor araligi - kucuk orneklemli oranlar (orn. 7 denemede kac dogru) icin
+    normal yaklasimdan (basit 'ortalama +- std') cok daha guvenilir bir guven araligi
+    hesaplama yontemi. Ozellikle oran 0'a ya da 1'e yakinken (senin 0/7 durumun gibi)
+    klasik yontem SACMA sonuclar verir (negatif olasilik gibi) - Wilson bunu duzeltir.
+    """
+    if toplam == 0:
+        return (0.0, 1.0)
+    p_ham = dogru / toplam
+    denom = 1 + z**2 / toplam
+    merkez = (p_ham + z**2 / (2 * toplam)) / denom
+    yari_genislik = (z * math.sqrt((p_ham * (1 - p_ham) + z**2 / (4 * toplam)) / toplam)) / denom
+    return (max(0.0, merkez - yari_genislik), min(1.0, merkez + yari_genislik))
 
 
 def gerekli_dogru_hesapla(hedef_puan, bos_sayisi, toplam_soru=60, dogru_puan=1.5, yanlis_puan=-0.4):
@@ -1674,19 +1702,78 @@ with sekme10:
         "tipki bir torbadan renkli toplar cekip, hangi renklerin daha cok oldugunu "
         "bilerek tahmin yapmak gibi."
     )
+    st.warning(
+        "**Onemli duzeltme**: bu bolum su ana kadar 'kalan sik sayisina esit sansla "
+        "seciyorsun' (orn. 2 sik kalirsa %50) VARSAYIYORDU. Ama bu senin GERCEK "
+        "performansin degil - bir varsayim. Eger senin gercek gecmisin bu varsayimdan "
+        "FARKLIYSA (mesela 2 sikta kaldiginda hep yanlisi seciyorsan), asagida KENDI "
+        "verini girip GERCEKCI bir hesap yapabilirsin."
+    )
+
+    mod_secim = st.radio(
+        "Hangi olasiligi kullanalim?",
+        ["Varsayilan (esit sans)", "Kendi Gecmis Performansim"],
+        horizontal=True, key="s10_binom_mod"
+    )
+
     col_b1, col_b2 = st.columns(2)
     with col_b1:
         n_soru_secim = st.slider("Kac soruda kararsizsin (hic fikrin yok ama 1+ sikki eleyebiliyorsun)?",
                                    0, 60, 10)
     with col_b2:
         elenebilen_secim = st.select_slider("Kac sikki eleyebiliyorsun? (IMAT'ta 5 sik var)",
-                                              options=[0, 1, 2, 3, 4], value=0,
+                                              options=[0, 1, 2, 3, 4], value=3,
                                               format_func=lambda x: f"{x} sik eleyebiliyorum (kalan {5-x} sikdan biri dogru)")
 
+    ampirik_dogru_deger, ampirik_toplam_deger = None, None
+    if mod_secim == "Kendi Gecmis Performansim":
+        st.markdown(
+            f"🧒 Su an sectigin durum: **{5-elenebilen_secim} sik kaldiginda** ne kadar "
+            "dogru bildigini gir. Mesela senin soyledigin ornek: 2 sikta kaldiginda "
+            "(elenebilen=3), 21 yanlisinin 7'si bu durumdaydi ve 0'i dogruydu - yani "
+            "asagiya **7** ve **0** yazardin."
+        )
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
+            ampirik_toplam_deger = st.number_input(
+                f"Gecmiste kac kez {5-elenebilen_secim} sikta kaldin?", min_value=0, value=7, step=1, key="s10_amp_toplam"
+            )
+        with col_e2:
+            ampirik_dogru_deger = st.number_input(
+                "Bunlarin kacinda DOGRU bildin?", min_value=0, max_value=int(ampirik_toplam_deger), value=0, step=1, key="s10_amp_dogru"
+            )
+
+        if ampirik_toplam_deger > 0:
+            p_ham_gosterim = ampirik_dogru_deger / ampirik_toplam_deger
+            alt_sinir, ust_sinir = wilson_guven_araligi(ampirik_dogru_deger, ampirik_toplam_deger)
+            st.caption(
+                f"🧒 Ham oranin: **%{p_ham_gosterim*100:.0f}** ({ampirik_dogru_deger}/{ampirik_toplam_deger}). "
+                f"Ama {ampirik_toplam_deger} deneme AZ bir sayi - gercek oranin, sansa bagli olarak, "
+                f"muhtemelen **%{alt_sinir*100:.0f} ile %{ust_sinir*100:.0f}** arasinda bir yerdedir "
+                "(Wilson guven araligi - %95 eminlikle). Bu yuzden hesapta 0 yerine, biraz daha "
+                "'yumusatilmis' bir oran kullaniyoruz (Laplace duzeltmesi) - asiri iddiali bir "
+                "'kesinlikle yanlis yaparim' sonucuna varmamak icin."
+            )
+            if ampirik_dogru_deger == 0 and ampirik_toplam_deger >= 5:
+                st.error(
+                    "🧒 Bu carpici bir sonuc: bu kadar denemede HIC dogru bilmemis olman, "
+                    "sans eseri olmasi zor - muhtemelen bu durumda SISTEMATIK bir sey oluyor "
+                    "(orn. dogruyu eleyip yanlisi tutuyor olabilirsin). Bu bir istatistik "
+                    "sorusu degil ama fark etmen iyi oldu - belki bu 2 siklik sorularda "
+                    "ilk icgudunle degil, 'en son eledigim' mantigiyla karar veriyorsundur, "
+                    "tersini denemek isteyebilirsin."
+                )
+
     if n_soru_secim > 0:
-        sonuc_binom = sansa_birakma_analizi(n_soru_secim, elenebilen_secim)
+        sonuc_binom = sansa_birakma_analizi(
+            n_soru_secim, elenebilen_secim,
+            ampirik_dogru=ampirik_dogru_deger, ampirik_toplam=ampirik_toplam_deger
+        )
         p = sonuc_binom["p"]
         ev_soru = sonuc_binom["ev_soru"]
+        if sonuc_binom["p_ham"] is not None:
+            st.caption(f"🧒 Hesapta kullanilan p (Laplace-duzeltilmis): **%{p*100:.1f}** "
+                       f"(varsayilan/esit-sans degeri %{sonuc_binom['p_varsayilan']*100:.0f} olurdu)")
         if ev_soru > 0:
             st.success(
                 f"🧒 Dogru olma ihtimalin: **%{p*100:.0f}**. Her boyle soruda ORTALAMA "
