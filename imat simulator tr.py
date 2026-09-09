@@ -266,6 +266,150 @@ def volatilite_index_hesapla(uni, tur_idx, k=3, gecis_yili_haric=True):
     return float(np.sqrt(max(shrunk_var, 0.0)))
 
 
+GUVENILIRLIK_ESIGI = 89.5  # bu deger veya uzerine cikan %95 tahmini "GUVENILMEZ" olarak isaretlenir
+
+
+def ulusal_etki_hesapla(tur_idx, gecis_yili_haric=True):
+    """
+    COK SEVIYELI SIMULASYONUN 1. SEVIYESI (ULUSAL/SISTEMIK):
+    Her yil-gecisi (2022->2023, 2023->2024, 2024->2025) icin TUM universitelerin
+    o gecisteki farklarinin ORTALAMASINI alir - bu, o yil TUM sisteme ayni anda
+    etki eden 'ulusal etki'yi temsil eder (kontenjan/mevzuat degisikligi, sinav
+    zorlugu, vb - okula ozgu degil).
+    gecis_yili_haric=True ise 2023->2024 (bilinen tek seferlik yapisal kirilma,
+    muhtemelen Cambridge->MUR gecisi) bu hesaba KATILMAZ - cunku 2026'da
+    tekrarlanmasi beklenmiyor, dahil etmek ulusal varyansi yapay sekilde sisirir.
+    Doner: (ortalama_ulusal_etki, ulusal_etki_std, {gecis: deger} sozlugu)
+    """
+    tum_gecisler = [(2022, 2023), (2023, 2024), (2024, 2025)]
+    gecisler = [t for t in tum_gecisler if not (gecis_yili_haric and t == (2023, 2024))]
+    ulusal = {}
+    for t in gecisler:
+        diffs = []
+        for uni in UNIVERSITELER:
+            yillar_puan = TABAN_PUANLAR.get(uni, {})
+            v0 = yillar_puan.get(t[0], (None, None))[tur_idx]
+            v1 = yillar_puan.get(t[1], (None, None))[tur_idx]
+            if v0 is not None and v1 is not None:
+                diffs.append(v1 - v0)
+        if diffs:
+            ulusal[t] = float(np.mean(diffs))
+    degerler = list(ulusal.values())
+    if len(degerler) >= 2:
+        return float(np.mean(degerler)), float(np.std(degerler, ddof=1)), ulusal
+    elif len(degerler) == 1:
+        return degerler[0], abs(degerler[0]) * 0.5, ulusal
+    else:
+        return 0.0, 3.0, ulusal
+
+
+def idiosinkratik_kalinti_hesapla(uni, tur_idx, ulusal_sozluk, gecis_yili_haric=True):
+    """
+    COK SEVIYELI SIMULASYONUN 2. SEVIYESI (OKULA OZGU/IDIOSINKRATIK):
+    Bu okulun HER yil-gecisindeki gercek farkindan, o gecisin ULUSAL ETKISINI
+    cikarir. Kalan 'kalinti' (residual), o okula OZGU sapmayi temsil eder -
+    ulusal ortak sokun etkisi zaten ayristirilmis oldugu icin bu kalintilarin
+    varyansi ham yil-yil farklardan cok daha kucuk ve gercekci cikar.
+    """
+    yillar_puan = TABAN_PUANLAR.get(uni, {})
+    tum_gecisler = [(2022, 2023), (2023, 2024), (2024, 2025)]
+    gecisler = [t for t in tum_gecisler if not (gecis_yili_haric and t == (2023, 2024))]
+    kalintilar = []
+    for t in gecisler:
+        v0 = yillar_puan.get(t[0], (None, None))[tur_idx]
+        v1 = yillar_puan.get(t[1], (None, None))[tur_idx]
+        if v0 is not None and v1 is not None and t in ulusal_sozluk:
+            kalintilar.append((v1 - v0) - ulusal_sozluk[t])
+    return kalintilar
+
+
+def idiosinkratik_volatilite_havuzlanmis(tur_idx, ulusal_sozluk, gecis_yili_haric=True):
+    """Tum universitelerin kalintilarindan klasik pooled variance - shrinkage icin taban."""
+    pay, payda, hepsi = 0.0, 0, []
+    for uni in UNIVERSITELER:
+        kalintilar = idiosinkratik_kalinti_hesapla(uni, tur_idx, ulusal_sozluk, gecis_yili_haric)
+        hepsi.extend(kalintilar)
+        if len(kalintilar) >= 2:
+            var_i = float(np.var(kalintilar, ddof=1))
+            df_i = len(kalintilar) - 1
+            pay += df_i * var_i
+            payda += df_i
+    if payda == 0:
+        return float(np.var(hepsi)) if hepsi else 1.0
+    return pay / payda
+
+
+def cok_seviyeli_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75, k=3, gecis_yili_haric=True):
+    """
+    COK SEVIYELI (HIERARCHICAL / MULTI-LEVEL) MONTE CARLO SIMULASYONU:
+      SEVIYE 1 - Ulusal: her simulasyon orneginde BIR KERE, TUM universiteler
+        icin ORTAK bir 'ulusal sok' orneklenir: Normal(ulusal_ortalama, ulusal_std)
+      SEVIYE 2 - Okula ozgu: o okula ait, ulusal etki ayristirildiktan SONRA
+        kalan kalintilardan turetilen (shrinkage/pooled) idiosinkratik std ile
+        Normal(0, idiosinkratik_std) orneklenir
+      TOPLAM SICRAMA = Seviye1 + Seviye2 (+ kontenjan baski etkisi)
+    Bu yapi klasik tek-seviyeli simulasyondan farkli olarak, TUM okullarda ayni
+    anda yasanan sistemik soklarla (orn. ulusal aday sayisi patlamasi) HER okula
+    OZGU rastgeleligi AYRI AYRI modeller - okula ozgu volatilite artik sadece o
+    okulun GERCEKTEN kendine ozgu oynakligini yansitir, ulusal gurultuyle
+    sismemis olur.
+    """
+    yillar_puan = TABAN_PUANLAR.get(uni, {})
+    degerler = [(y, yillar_puan[y][tur_idx]) for y in [2022, 2023, 2024, 2025]
+                if yillar_puan.get(y, (None, None))[tur_idx] is not None]
+    if len(degerler) < 2:
+        return None
+    son_yil, son_puan = degerler[-1]
+
+    ulusal_ort, ulusal_std, ulusal_sozluk = ulusal_etki_hesapla(tur_idx, gecis_yili_haric)
+    kalintilar = idiosinkratik_kalinti_hesapla(uni, tur_idx, ulusal_sozluk, gecis_yili_haric)
+    pooled_idio_var = idiosinkratik_volatilite_havuzlanmis(tur_idx, ulusal_sozluk, gecis_yili_haric)
+
+    if len(kalintilar) >= 1:
+        df_i = len(kalintilar) - 1
+        if df_i >= 1:
+            individual_var = float(np.var(kalintilar, ddof=1))
+            shrunk_idio_var = (df_i * individual_var + k * pooled_idio_var) / (df_i + k)
+        else:
+            shrunk_idio_var = pooled_idio_var
+        idio_ortalama = float(np.mean(kalintilar))
+    else:
+        shrunk_idio_var = pooled_idio_var
+        idio_ortalama = 0.0
+    idio_std = float(np.sqrt(max(shrunk_idio_var, 0.0)))
+
+    yillar_koltuk = KONTENJAN_TARIHSEL.get(uni, {})
+    koltuk_son_yil = (yillar_koltuk.get(son_yil, (None, None))[tur_idx]
+                       if son_yil in yillar_koltuk else None)
+    koltuk_2026 = yillar_koltuk.get(2026, (None, None))[tur_idx] if 2026 in yillar_koltuk else None
+    if koltuk_son_yil and koltuk_2026 and koltuk_son_yil > 0:
+        koltuk_degisim_yuzde = (koltuk_2026 - koltuk_son_yil) / koltuk_son_yil * 100
+    else:
+        koltuk_degisim_yuzde = None
+    baski_etkisi = 0.0
+    if koltuk_degisim_yuzde is not None and koltuk_degisim_yuzde < 15:
+        baski_etkisi = (15 - koltuk_degisim_yuzde) / 10 * sensitivite
+
+    rng = np.random.default_rng(seed)
+    seviye1_ulusal_sok = rng.normal(loc=ulusal_ort, scale=max(ulusal_std, 0.01), size=n_sim)
+    seviye2_okul_soku = rng.normal(loc=idio_ortalama, scale=max(idio_std, 0.01), size=n_sim)
+    sonuclar = son_puan + seviye1_ulusal_sok + seviye2_okul_soku + baski_etkisi
+    sonuclar = np.clip(sonuclar, 0.0, 90.0)
+    sonuclar_sirali = np.sort(sonuclar)
+
+    p95 = round(float(np.percentile(sonuclar_sirali, 95)), 1)
+    return {
+        "son_yil": son_yil, "son_puan": son_puan,
+        "ulusal_ortalama": round(ulusal_ort, 2), "ulusal_std": round(ulusal_std, 2),
+        "idiosinkratik_std": round(idio_std, 2),
+        "medyan": round(float(np.median(sonuclar_sirali)), 1),
+        "p95_tahmin_araligi": p95,
+        "p5_kotumser": round(float(np.percentile(sonuclar_sirali, 5)), 1),
+        "guvenilir": p95 < GUVENILIRLIK_ESIGI,
+        "n_sim": n_sim,
+    }
+
+
 def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75, k=3, gecis_yili_haric=True):
     """
     SEFFAF Monte Carlo simulasyonu - her adimi acik:
@@ -328,13 +472,15 @@ def monte_carlo_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75
     sonuclar = np.clip(sonuclar, 0.0, 90.0)
     sonuclar_sirali = np.sort(sonuclar)
 
+    p95_duz = round(float(np.percentile(sonuclar_sirali, 95)), 1)
     return {
         "son_yil": son_yil, "son_puan": son_puan,
         "ort_fark": round(ort_fark, 2), "ort_fark_kaynak": ort_fark_kaynak,
         "volatilite": round(volatilite, 2),
         "medyan": round(float(np.median(sonuclar_sirali)), 1),
-        "p95_tahmin_araligi": round(float(np.percentile(sonuclar_sirali, 95)), 1),
+        "p95_tahmin_araligi": p95_duz,
         "p5_kotumser": round(float(np.percentile(sonuclar_sirali, 5)), 1),
+        "guvenilir": p95_duz < GUVENILIRLIK_ESIGI,
         "n_sim": n_sim,
     }
 
@@ -993,48 +1139,45 @@ with sekme9:
         "acikca gosteriyor."
     )
 
-    with st.expander("Terminoloji notu: 'Guven Araligi' mi, 'Tahmin Araligi' mi?", expanded=True):
-        st.markdown(
-            "Klasik **confidence interval (guven araligi)**, tekrarlanan orneklemede araligin "
-            "%95 ihtimalle GERCEK POPULASYON PARAMETRESINI (orn. gercek ortalama taban puanini) "
-            "icerecegini soyler. Ama bizim burada cevaplamaya calistigimiz soru bu degil - biz "
-            "'2026'da GERCEKLESECEK TEK BIR taban puani ne olacak' diye soruyoruz. Bunun dogru "
-            "istatistiksel karsiligi **prediction interval (tahmin araligi)**'dir: gelecekteki "
-            "TEK bir gozlemin bu araliga dusme ihtimalini verir, ve CI'dan her zaman daha genistir "
-            "(cunku hem parametre belirsizligini HEM DE o tek gozlemin kendi rastgeleligini icerir). "
-            "Bu yuzden asagida 'Guven Hedefi' degil **'%95 Tahmin Araligi'** basligini kullaniyoruz - "
-            "dogru terim bu."
-        )
-
-    with st.expander("Volatilite Index nasil hesaplandi? (shrinkage/pooled yontem)"):
-        st.markdown(
-            "2022-2025 arasi sadece 2-3 yil-yil fark var - bundan hesaplanan ham standart sapma "
-            "kendisi cok kararsiz (bir onceki mesajda gorduk: 11-14 puan araliginda, hepsi TEK bir "
-            "ortak sicramadan - 2023->2024 gecisinden - kaynaklaniyordu). Bu yuzden **pooled variance / "
-            "shrinkage** (istatistikte kucuk orneklemli gruplar icin standart teknik, orn. Efron-Morris "
-            "James-Stein tahmincisi) kullaniyoruz:\n\n"
-            "1. Once TUM universiteler icin ORTAK bir 'havuzlanmis varyans' hesaplanir (klasik ANOVA "
-            "pooled-variance formulu: `sum((n_i-1)*var_i) / sum(n_i-1)`) - bu, 2023->2024 gibi TUM "
-            "okullarda ayni anda yasanan ulusal sicramalari dogru sekilde paylastirir.\n"
-            "2. Her okulun KENDI varyansi, bu havuzlanmis varyansa dogru 'cekilir' "
-            "(`shrunk_var = (df*kendi_varyans + k*havuz_varyans) / (df+k)`) - okulun kendi veri "
-            "miktari (df) ne kadar azsa, havuza o kadar cok guvenilir.\n"
-            "3. **Volatilite Index = sqrt(shrunk_var)**."
-        )
-
-    with st.expander("2023->2024 sistemik sicramasi neden hesaptan cikarildi?", expanded=True):
-        st.markdown(
-            "Havuzlama (pooling) tek basina yeterli olmadi: 2023->2024 gecisinde HER okulda "
-            "ayni anda ~+21/+22 puanlik dev bir sicrama var (muhtemelen Cambridge'den MUR'a "
-            "gecis yili - kodun 5. sekmesinde zaten bu notlanmis). Bu okula ozgu bir 'oynaklik' "
-            "degil, tek seferlik bir YAPISAL KIRILMA - havuzlama bunu kucultmez, sadece tum "
-            "okullara esit yayar. Bu yuzden asagidaki secenek varsayilan olarak bu yili "
-            "hesaplamadan CIKARIYOR (sadece 2022->2023 ve 2024->2025 farklarini kullaniyor)."
-        )
-    gecis_yili_secim = st.checkbox(
-        "2023->2024 sistemik sicramasini hesaptan cikar (onerilir)", value=True, key="s9_gecis"
+    st.error(
+        "**Onemli duzeltme**: bir onceki versiyonda, simulasyon 90 puan (matematiksel tavan) "
+        "tavanina CARPTIGINDA bu deger sanki gercek bir tahminmis gibi ('%95 guvenli hedef: 90') "
+        "gosteriliyordu. Bu YANLIS - 90'a carpmak 'guvenli hedef 90' demek DEGIL, 'modelin bu "
+        "okul icin anlamli bir tahmin uretemedigi' demektir (belirsizlik o kadar buyuk ki ust "
+        "sinir teorik maksimuma dayaniyor). Artik boyle durumlar sayi olarak degil, acikca "
+        "**'GUVENILMEZ'** etiketiyle gosteriliyor."
     )
 
+    with st.expander("Terminoloji notu: 'Guven Araligi' mi, 'Tahmin Araligi' mi?"):
+        st.markdown(
+            "Klasik **confidence interval (guven araligi)**, tekrarlanan orneklemede araligin "
+            "%95 ihtimalle GERCEK POPULASYON PARAMETRESINI icerecegini soyler. Ama bizim sorumuz "
+            "bu degil - '2026'da GERCEKLESECEK TEK BIR taban puani ne olacak' diye soruyoruz. "
+            "Bunun dogru karsiligi **prediction interval (tahmin araligi)**'dir - bu yuzden "
+            "'Guven Hedefi' degil **'%95 Tahmin Araligi'** basligini kullaniyoruz."
+        )
+
+    with st.expander("Tek Seviyeli vs Cok Seviyeli (Multi-Level) simulasyon farki", expanded=True):
+        st.markdown(
+            "**Tek Seviyeli**: her okulun kendi ham yil-yil farklarindan TEK bir volatilite "
+            "hesaplanir (shrinkage/pooled). Sorun: TUM okullarda ayni anda yasanan ulusal "
+            "sicramalar (2023->2024 gibi) okulun 'kendine ozgu' volatilitesine karisir.\n\n"
+            "**Cok Seviyeli (Hierarchical)**: iki ayri katmana ayrilir -\n"
+            "- **Seviye 1 (Ulusal)**: her yil-gecisinde TUM okullarin ORTALAMA farki - "
+            "sisteme aninda etki eden ortak sok (kontenjan/mevzuat degisikligi, sinav zorlugu)\n"
+            "- **Seviye 2 (Okula Ozgu)**: okulun kendi farkindan ulusal etki cikarildiktan "
+            "SONRA kalan 'kalinti' - GERCEKTEN o okula ozgu oynaklik\n\n"
+            "Simulasyonda her iki katman AYRI AYRI orneklenip toplanir. Sonuc: ulusal ortak "
+            "gurultu artik okula ozgu volatiliteyi sismemis olur - genelde cok daha kucuk ve "
+            "gercekci bir okul-bazli volatilite cikar."
+        )
+
+    gecis_yili_secim = st.checkbox(
+        "2023->2024 sistemik sicramasini hesaptan cikar (onerilir - Tek Seviyeli icin gerekli, "
+        "Cok Seviyeli icin ek guvence)", value=True, key="s9_gecis"
+    )
+    yontem_s9 = st.radio("Simulasyon Yontemi", ["Tek Seviyeli", "Cok Seviyeli (Hierarchical)"],
+                          horizontal=True, key="s9_yontem")
     n_sim_secim = st.select_slider("Orneklem sayisi (n_sim)", options=[1000, 10000, 100000, 500000], value=100000)
     k_secim = st.slider("Havuzlama gucu (k) - yuksek = daha cok havuza guven, dusuk = daha cok okulun kendi verisine guven",
                           1, 10, 3)
@@ -1043,27 +1186,48 @@ with sekme9:
 
     satirlar_s9 = []
     for uni in UNIVERSITELER:
-        sonuc = monte_carlo_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75, k=k_secim,
-                                         gecis_yili_haric=gecis_yili_secim)
-        if sonuc is None:
-            continue
-        satirlar_s9.append({
-            "Universite": uni + (" ⚠️" if "TUM okullarin" in sonuc["ort_fark_kaynak"] else ""),
-            "Son Puan": sonuc["son_puan"],
-            "Ort. Yillik Fark": sonuc["ort_fark"],
-            "Volatilite Index (havuzlanmis)": sonuc["volatilite"],
-            "Simulasyon Medyani": sonuc["medyan"],
-            "%95 Tahmin Araligi (ust sinir)": sonuc["p95_tahmin_araligi"],
-            "%5 Kotumser Sinir": sonuc["p5_kotumser"],
-        })
+        if yontem_s9 == "Tek Seviyeli":
+            sonuc = monte_carlo_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75, k=k_secim,
+                                             gecis_yili_haric=gecis_yili_secim)
+            if sonuc is None:
+                continue
+            satirlar_s9.append({
+                "Universite": uni + (" ⚠️" if "TUM okullarin" in sonuc["ort_fark_kaynak"] else ""),
+                "Son Puan": sonuc["son_puan"],
+                "Volatilite": sonuc["volatilite"],
+                "Simulasyon Medyani": sonuc["medyan"],
+                "%95 Tahmin Araligi": sonuc["p95_tahmin_araligi"] if sonuc["guvenilir"] else "GUVENILMEZ",
+                "%5 Kotumser Sinir": sonuc["p5_kotumser"],
+            })
+        else:
+            sonuc = cok_seviyeli_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75, k=k_secim,
+                                              gecis_yili_haric=gecis_yili_secim)
+            if sonuc is None:
+                continue
+            satirlar_s9.append({
+                "Universite": uni,
+                "Son Puan": sonuc["son_puan"],
+                "Ulusal Etki (Seviye 1)": sonuc["ulusal_ortalama"],
+                "Ulusal Std": sonuc["ulusal_std"],
+                "Okula Ozgu Std (Seviye 2)": sonuc["idiosinkratik_std"],
+                "Simulasyon Medyani": sonuc["medyan"],
+                "%95 Tahmin Araligi": sonuc["p95_tahmin_araligi"] if sonuc["guvenilir"] else "GUVENILMEZ",
+                "%5 Kotumser Sinir": sonuc["p5_kotumser"],
+            })
 
-    df_s9 = pd.DataFrame(satirlar_s9).sort_values("%95 Tahmin Araligi (ust sinir)", ascending=False)
+    df_s9 = pd.DataFrame(satirlar_s9)
     st.dataframe(df_s9, use_container_width=True, hide_index=True)
 
+    guvenilmez_sayisi = (df_s9["%95 Tahmin Araligi"] == "GUVENILMEZ").sum()
+    if guvenilmez_sayisi > 0:
+        st.warning(
+            f"{guvenilmez_sayisi} okul icin %95 tahmin araligi GUVENILMEZ olarak isaretlendi "
+            f"(esik: {GUVENILIRLIK_ESIGI} puan) - bu okullarin verisi cok az/kararsiz, model "
+            "anlamli bir ust sinir uretemiyor. Sayiyi zorla goze carpmiyoruz."
+        )
     st.info(
         f"n_sim={n_sim_secim:,} ornek uretildi, kucukten buyuge siralandi, tam ortadaki deger "
-        "'Simulasyon Medyani' olarak alindi. Havuzlama sayesinde artik hicbir okul 90 tavanina "
-        "yapay olarak carpmiyor - volatilite gercekci ve karsilastirilabilir seviyede."
+        "'Simulasyon Medyani' olarak alindi."
     )
 
     st.divider()
@@ -1080,17 +1244,14 @@ with sekme9:
     ], columns=["Universite", "DisKaynak_SafeTarget_EU", "DisKaynak_SafeTarget_NonEU"])
 
     karsilastirma_s9 = dis_kaynak_karsilastirma.merge(
-        df_s9[["Universite", "%95 Tahmin Araligi (ust sinir)"]].assign(
+        df_s9[["Universite", "%95 Tahmin Araligi"]].assign(
             Universite=df_s9["Universite"].str.replace(" ⚠️", "", regex=False)
         ),
         on="Universite", how="left"
     )
     kolon_s9 = "DisKaynak_SafeTarget_EU" if tur_s9 == "EU" else "DisKaynak_SafeTarget_NonEU"
-    karsilastirma_s9["Fark (Dis - Bizim)"] = round(
-        karsilastirma_s9[kolon_s9] - karsilastirma_s9["%95 Tahmin Araligi (ust sinir)"], 1
-    )
     st.dataframe(
-        karsilastirma_s9[["Universite", kolon_s9, "%95 Tahmin Araligi (ust sinir)", "Fark (Dis - Bizim)"]],
+        karsilastirma_s9[["Universite", kolon_s9, "%95 Tahmin Araligi"]],
         use_container_width=True, hide_index=True
     )
 
