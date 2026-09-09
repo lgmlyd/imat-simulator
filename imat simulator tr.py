@@ -179,6 +179,9 @@ def taban_tahmini_hesapla(uni, tur_idx, yontem="ortalama", sensitivite=0.75):
         baski_etkisi = (15 - koltuk_degisim_yuzde) / 10 * sensitivite
 
     tahmin_2026 = round(son_puan + sicrama + baski_etkisi, 1)
+    # PUANLAMA TAVANI: 60 soru x (+1.5 dogru) = 90 mutlak matematiksel tavan.
+    # Hicbir tahmin bu sinirin uzerine cikamaz; asagi yonde de 0'in altina inemez.
+    tahmin_2026 = max(0.0, min(90.0, tahmin_2026))
 
     return son_yil, son_puan, round(sicrama, 1), (None if koltuk_degisim_yuzde is None else round(koltuk_degisim_yuzde, 1)), tahmin_2026
 
@@ -223,9 +226,10 @@ st.title("IMAT 2022-2026 Dogrulanmis Veri + Kriz ve Kontenjan Simulatoru")
 st.caption("Temel veriler 2022-2025 dogrulama surecinden ve 2026 resmi kontenjan kararindan geliyor. "
            "Sekmelerdeki kontrollerle senaryo uretebilirsin - hicbiri temel veriyi degistirmez.")
 
-sekme1, sekme2, sekme3, sekme4, sekme5, sekme6 = st.tabs([
+sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7, sekme8 = st.tabs([
     "Dogrulanmis Temel Veri", "Senaryo Simulatoru", "Ozel Taban Puan Ekleyici",
-    "En Kotu Senaryo (Worst Case)", "Merkezi Tahmin (Ana Senaryo)", "Yerlesim Tahmini (Tercih Listem)"
+    "En Kotu Senaryo (Worst Case)", "Merkezi Tahmin (Ana Senaryo)", "Yerlesim Tahmini (Tercih Listem)",
+    "Terimler & Metodoloji", "Dis Kaynak Karsilastirma"
 ])
 
 # ----------------------------------------------------------------------
@@ -343,8 +347,8 @@ with sekme2:
     tahmin_satirlari = []
     for uni, yillar in TABAN_PUANLAR.items():
         eu_2025, non_2025 = yillar.get(2025, (None, None))
-        tahmin_eu = None if eu_2025 is None else round(eu_2025 + tahmini_degisim_eu - zorluk_degisimi, 1)
-        tahmin_non = None if non_2025 is None else round(non_2025 + tahmini_degisim_noneu - zorluk_degisimi, 1)
+        tahmin_eu = None if eu_2025 is None else max(0.0, min(90.0, round(eu_2025 + tahmini_degisim_eu - zorluk_degisimi, 1)))
+        tahmin_non = None if non_2025 is None else max(0.0, min(90.0, round(non_2025 + tahmini_degisim_noneu - zorluk_degisimi, 1)))
         tahmin_satirlari.append({"Universite": uni, "2025_EU": eu_2025, "Tahmini_2026_EU": tahmin_eu,
                                   "2025_NonEU": non_2025, "Tahmini_2026_NonEU": tahmin_non})
     st.dataframe(pd.DataFrame(tahmin_satirlari), use_container_width=True)
@@ -691,6 +695,137 @@ with sekme6:
     fark_pozisyon = son_gecerli_pozisyon - senin_pozisyonun
     yorum = pozisyon_olasilik_yorumu(fark_pozisyon)
     st.info(f"Pozisyon farki: {fark_pozisyon:+d} -> **{yorum}**")
+
+# ----------------------------------------------------------------------
+# SEKME 7 - TERIMLER & METODOLOJI: her terimin ve her hesabin acik aciklamasi
+# ----------------------------------------------------------------------
+with sekme7:
+    st.subheader("Terimler Sozlugu ve Metodoloji")
+    st.caption("Bu sekme hicbir hesap yapmaz - sadece diger sekmelerde gordugun terimleri ve formulleri acar.")
+
+    st.markdown("### Puanlama Sistemi (IMAT sinavi)")
+    st.markdown(
+        "- **Toplam soru**: 60\n"
+        "- **Dogru cevap**: +1.5 puan\n"
+        "- **Yanlis cevap**: -0.4 puan\n"
+        "- **Bos birakilan**: 0 puan\n"
+        "- **Matematiksel tavan**: 60 x 1.5 = **90 puan** (60 sorunun hepsi dogru olsa bile bu sinirin uzerine cikilamaz - "
+        "simulatordeki tum tahminler artik bu tavana gore sinirlandiriliyor)"
+    )
+
+    st.divider()
+    st.markdown("### Base Case / Merkezi Tahmin / En Kotu Senaryo farki")
+    st.markdown(
+        "Ucu de ayni ortak fonksiyonu (`taban_tahmini_hesapla`) farkli 'yontem' parametresiyle cagirir. "
+        "Fark, 2022-2025 arasindaki yil-yil taban puan farklarindan (siçramalardan) hangisinin secildigidir:\n\n"
+        "- **Base Case** (`yontem=\"son_fark\"`): SADECE en son iki yilin farkini kullanir (2024->2025 sicramasi). "
+        "'Bir onceki yilki trend aynen devam ederse ne olur' sorusuna cevap verir. En az veri kullanan, en 'guncel' yontem.\n"
+        "- **Merkezi Tahmin** (`yontem=\"ortalama\"`): 2022-2025 arasindaki TUM yil-yil farklarinin ORTALAMASINI alir. "
+        "Tek bir yilin sapmasindan (mesela 2023'un dusuk oldugu MUR gecis yilindan) daha az etkilenir - bu yuzden "
+        "'en olasi/dengeli senaryo' olarak sunulur.\n"
+        "- **En Kotu Senaryo** (`yontem=\"max\"`): 2022-2025 arasinda gerceklesmis EN BUYUK pozitif sicramayi alir. "
+        "Yani 'gecmiste yasanan en sert artis 2026'da da tekrar olursa ne olur' sorusuna cevap verir - uydurma bir "
+        "yuzde degil, gercek gecmis veriden.\n\n"
+        "Uçune de ayrica bir **'baski etkisi'** eklenir: eger 2026 kontenjani, son gecerli yila gore %15'ten az arttiysa "
+        "(ya da azaldiysa), bu \"kontenjan sikismasi\" taban puanini yukari iter. Bu etkinin buyuklugu sekmeden sekmeye "
+        "degisen bir **hassasiyet katsayisiyla** carpilir (Worst Case'te daha yuksek, Merkezi'de daha dusuk tutulur - "
+        "cunku en kotu senaryoda kontenjan baskisinin de en sert sekilde hissedilecegi varsayilir)."
+    )
+
+    st.divider()
+    st.markdown("### Yerlesim Tahmini sekmesindeki kolonlar")
+    st.markdown(
+        "- **Son Yil / Son Puan**: 2022-2025 arasinda o universite icin verinin bulundugu en guncel yil ve o yildaki gercek taban puan\n"
+        "- **Base Case 2026 / Merkezi 2026 / En Kotu 2026**: yukarida aciklanan uc yontemin her biriyle hesaplanan 2026 tahmini\n"
+        "- **Fark (Base Case)**: senin girdigin puan EKSI Base Case tahmini. Pozitifse (+) o universiteye Base Case senaryosunda "
+        "girme ihtimalin var demektir; negatifse (-) o kadar puan acigin var demektir\n"
+        "- **Durum**: Fark (Base Case) >= 0 ise 'GECER', degilse 'ACIK VAR'"
+    )
+
+    st.divider()
+    st.markdown("### Diger terimler")
+    st.markdown(
+        "- **EU / Yerli Havuzu vs Non-EU Havuzu**: Italyan universitelerinde AB vatandaslari (+ bazi esdeger statuler) "
+        "ile AB disi/yurt disi ikametli adaylar icin ayri kontenjan ve ayri taban puan olusur - iki havuz birbirinden "
+        "bagimsizdir, ayni sinav olsa da rekabet ortami farklidir\n"
+        "- **Rekabet Endeksi**: aday sayisi / kontenjan sayisi. Yukseldikce (kontenjana gore daha cok aday) taban "
+        "puanin da yukselmesi beklenir\n"
+        "- **Scorrimento**: ilk yerlesim sonrasi bosalan yerlerin (vazgecenler yuzunden) siradaki adaylara otomatik "
+        "kaydirilarak dagitilmasi sureci - Italyan sisteminde birkac ay surebilir\n"
+        "- **Bosluk yili (⚠️)**: o universite icin bazi yillarda veri bulunamadigi/eksik oldugu icin projeksiyonun daha "
+        "eski bir yildan yapildigi anlamina gelir - bu isaretli satirlar diger satirlara gore daha temkinli okunmali"
+    )
+
+# ----------------------------------------------------------------------
+# SEKME 8 - DIS KAYNAK KARSILASTIRMA: yuklenen PDF raporlarindaki veriyle kiyas
+# ----------------------------------------------------------------------
+with sekme8:
+    st.subheader("Dis Kaynak Tahminleriyle Karsilastirma")
+    st.warning(
+        "Bu sekmedeki veri BU PROJENIN TEMEL VERISI DEGILDIR - ucretli/harici bir 'tahmin' urununden "
+        "(IMAT Hero + bir baska ozel rapor) alinmis referans amacli veridir. Metodolojisi seffaf degil: her "
+        "universitede 'Simulasyon Medyani' aynen '2025 Final Cut-off' degerine esit cikiyor - yani model gercekte "
+        "2025'in etrafina bir 'volatilite' katsayisini standart sapma gibi kullanip rastgele gurultu ekliyor, "
+        "gercek bir trend/buyume ongorusu icermiyor. Birincil karar kaynagi olarak degil, ek bir referans noktasi "
+        "olarak kullan."
+    )
+
+    dis_kaynak_df = pd.DataFrame([
+        ["La Sapienza",        61.8, 65.8, 69.5, 80.3, 3.3, 7.6],
+        ["Bologna",            60.5, 70.3, 69.5, 79.2, 4.3, 4.2],
+        ["Milano Statale",     66.7, 72.9, 74.4, 80.6, 1.1, 2.8],
+        ["Milano Bicocca",     64.5, 65.1, 72.2, 79.4, 0.3, 7.5],
+        ["Padova",             59.7, 65.4, 67.4, 77.6, 3.5, 6.2],
+        ["Pavia",              60.4, 64.8, 68.1, 77.3, 1.3, 6.4],
+        ["Torino",             59.5, 67.1, 67.2, 75.2, 0.0, 3.7],
+        ["Tor Vergata",        57.9, 69.1, 65.6, 85.0, 1.6, 8.5],
+        ["Napoli Federico II", 59.8, 63.1, 67.5, 73.3, 1.6, 5.0],
+        ["Parma",              58.0, 67.6, 65.7, 83.6, 0.4, 8.5],
+        ["Verona",             57.9, 66.2, 65.6, 75.1, 0.6, 4.2],
+        ["Catania",            55.0, 61.6, 62.7, 70.8, 0.3, 4.4],
+        ["Luigi Vanvitelli",   56.0, 56.9, 63.7, 69.3, 1.3, 6.3],
+        ["Messina",            56.0, 58.2, 63.7, 65.9, 0.9, 3.2],
+        ["Cagliari",           55.9, 54.2, 63.6, 76.5, 0.9, 12.3],
+        ["Bari",               55.8, 49.3, 63.5, 78.4, 0.2, 16.5],
+    ], columns=["Universite", "DisKaynak_2025_Cutoff_EU", "DisKaynak_2025_Cutoff_NonEU",
+                "DisKaynak_SafeTarget95_EU", "DisKaynak_SafeTarget95_NonEU",
+                "DisKaynak_Volatility_EU", "DisKaynak_Volatility_NonEU"])
+
+    st.markdown("### Dis Kaynak Verisi (oldugu gibi)")
+    st.dataframe(dis_kaynak_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.markdown("### Kendi Modelinle Karsilastirma")
+    st.caption(
+        "Asagida dis kaynagin '%95 Safe Target' degeri (guvenlik payli tavan tahmini) ile senin Base Case / "
+        "Merkezi / En Kotu Senaryo tahminlerin yan yana. Dis kaynagin 'Safe Target'i tanim geregi senin En Kotu "
+        "Senaryo'na en yakin kavram - ikisini birlikte oku."
+    )
+
+    karsilastirma_turu = st.radio("Kontenjan Turu", ["EU", "NonEU"], horizontal=True, key="s8_tur")
+    tur_idx_s8 = 0 if karsilastirma_turu == "EU" else 1
+
+    karsilastirma_satirlari = []
+    for _, satir in dis_kaynak_df.iterrows():
+        uni = satir["Universite"]
+        if uni not in UNIVERSITELER:
+            continue
+        _, _, _, _, tahmin_bc = taban_tahmini_hesapla(uni, tur_idx_s8, yontem="son_fark", sensitivite=0.75)
+        _, _, _, _, tahmin_merkezi = taban_tahmini_hesapla(uni, tur_idx_s8, yontem="ortalama", sensitivite=0.75)
+        _, _, _, _, tahmin_worst = taban_tahmini_hesapla(uni, tur_idx_s8, yontem="max", sensitivite=1.5)
+
+        dis_safe_target = satir[f"DisKaynak_SafeTarget95_{karsilastirma_turu}"]
+
+        karsilastirma_satirlari.append({
+            "Universite": uni,
+            "Base Case (bizim)": tahmin_bc,
+            "Merkezi (bizim)": tahmin_merkezi,
+            "En Kotu (bizim)": tahmin_worst,
+            "Dis Kaynak Safe Target (%95)": dis_safe_target,
+            "Fark (Dis - Bizim En Kotu)": None if tahmin_worst is None else round(dis_safe_target - tahmin_worst, 1),
+        })
+
+    st.dataframe(pd.DataFrame(karsilastirma_satirlari), use_container_width=True, hide_index=True)
 
 st.divider()
 st.caption("Temel veri, 2022-2025 IMAT capraz kaynak dogrulamasindan alinmistir (Testbusters, Locomotive, Futura, "
