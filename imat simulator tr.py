@@ -1572,25 +1572,65 @@ with sekme9:
 
 with sekme10:
     st.info(
-        "🧒 **Bu sekme ne ise yarar?** 'X puan almak icin kac soru dogru yapmam lazim?' "
-        "sorusuna cevap veriyor - tipki bir markette 'bu kadar param var, ne kadar sekerleme "
-        "alabilirim' hesaplamak gibi. Sen bir hedef puan soyluyorsun, biz de sana 'bu kadar "
-        "dogru yapman yeterli' diyoruz.\n\n"
-        "**Nasil kullanilir?** Asagida hedef puanini ve kac soruyu bos birakmayi dusundugunu "
-        "gir - anlik olarak gereken en az dogru sayisini goreceksin."
+        "🧒 **Bu sekme ne ise yarar?** Dogru/Yanlis/Bos sayilarini SEN ayarlarsin, puanin "
+        "aninda degisir - tipki bir terazi gibi, bir tarafi degistirince digeri de tepki "
+        "verir. Boylece 'bunu sabit tutup digerini degistirsem ne olur' diye "
+        "deneyebilirsin.\n\n"
+        "**Nasil kullanilir?** Asagida DOGRU ve YANLIS icin iki ayri kaydirma cubugu var - "
+        "ikisini de istedigin gibi oynat, BOS otomatik hesaplanir (60'tan geri kalan), "
+        "puan aninda guncellenir."
     )
-    st.subheader("Puan Hedefi Hesaplayici")
+    st.subheader("Serbest Puan Hesaplayici (Dogru + Yanlis + Bos)")
+    st.caption("Denklem: Puan = 1.5 x Dogru - 0.4 x Yanlis, ve Bos = 60 - Dogru - Yanlis.")
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        dogru_secim = st.slider("Dogru sayisi", 0, 60, 47, key="s10_dogru")
+    with col_f2:
+        yanlis_max = 60 - dogru_secim
+        yanlis_secim = st.slider("Yanlis sayisi", 0, yanlis_max, min(13, yanlis_max), key="s10_yanlis")
+
+    bos_hesaplanan = 60 - dogru_secim - yanlis_secim
+    puan_hesaplanan = round(1.5 * dogru_secim - 0.4 * yanlis_secim, 2)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Dogru", dogru_secim)
+    m2.metric("Yanlis", yanlis_secim)
+    m3.metric("Bos (otomatik)", bos_hesaplanan)
+    m4.metric("PUAN", puan_hesaplanan)
+
     st.caption(
-        "Denklem: 1.5 x Dogru - 0.4 x Yanlis >= Hedef Puan, ve Dogru + Yanlis + Bos = 60. "
-        "Bos sorular 0 puan getirir, sadece 'oyun disi' kalirlar - riski yok ama faydasi da yok."
+        f"🧒 Ornek okuma: {dogru_secim} dogru yapip, kalan {60-dogru_secim} sorudan "
+        f"{yanlis_secim} tanesini yanlis, {bos_hesaplanan} tanesini bos birakirsan, "
+        f"puanin **{puan_hesaplanan}** olur. Yanlis kaydirici cubugunu oynatarak, "
+        f"AYNI dogru sayisinda kalan sorularin bos/yanlis dagilimini degistirip "
+        f"puanin nasil tepki verdigini gorebilirsin."
     )
 
+    with st.expander("🧒 Bu kaydiricilari '65 puan icin 47 dogru, kalan 13 ne olsa?' gibi kullanmak"):
+        st.markdown(
+            "Ornegin: Dogru kaydiricisini **47**'ye getir (60-47=13 soru kaldi). Simdi "
+            "Yanlis kaydiricisini 0'dan 13'e kadar oynat:\n"
+            "- Yanlis=0 -> Bos=13 -> Puan = 1.5×47 = **70.5**\n"
+            "- Yanlis=13 -> Bos=0 -> Puan = 1.5×47 - 0.4×13 = **65.3**\n\n"
+            "Yani 47 dogruyla, kalan 13 sorunun HEPSI yanlis olsa BILE hala 65 puanin "
+            "UZERINDE kalirsin (65.3) - bu, 47 dogrunun senin icin ne kadar 'guvenli bir "
+            "taban' oldugunu gosteriyor. Kaydiricilari kendin oynatip farkli sayilari "
+            "boyle deneyebilirsin."
+        )
+
+    st.divider()
+    st.markdown("### Hedef Puana Gore Ters Hesap: 'En az kac dogru yapmam lazim?'")
+    st.caption(
+        "🧒 Bu, yukaridakinin tersi: sen bir hedef puan ve bos birakacagin soru sayisini "
+        "soylersin, biz sana gereken EN AZ dogru sayisini soyleriz."
+    )
     col_h1, col_h2 = st.columns(2)
     with col_h1:
         hedef_puan_secim = st.number_input("Hedef Puan (bu puan veya ustu)", min_value=0.0, max_value=90.0,
                                              value=65.0, step=0.5)
     with col_h2:
-        bos_secim = st.slider("Bos birakmayi planladigin soru sayisi", 0, 60, 0)
+        bos_secim = st.slider("Bos birakmayi planladigin soru sayisi", 0, 60, 0, key="s10_hedef_bos")
 
     sonuc_hesap = gerekli_dogru_hesapla(hedef_puan_secim, bos_secim)
     if sonuc_hesap is None:
@@ -1607,10 +1647,6 @@ with sekme10:
             f"yeterli (kalan **{yanlis_hakki} soruyu** yanlis yapsan bile sorun olmaz). "
             f"Bu durumda elde edecegin puan: **{gercek_puan}**."
         )
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Dogru (en az)", d_min)
-        m2.metric("Yanlis (rahatlikla)", yanlis_hakki)
-        m3.metric("Bos", bos_secim)
 
     st.divider()
     st.markdown("### Butun Senaryolar: Bos = 0 iken, her 'yanlis sayisi' icin gereken en az dogru")
