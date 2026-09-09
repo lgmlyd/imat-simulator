@@ -13,6 +13,8 @@ projeksiyonu uretir.
 import streamlit as st
 import pandas as pd
 import numpy as np
+import math
+from scipy.stats import qmc, norm as norm_dagilim, t as t_dagilim
 
 st.set_page_config(page_title="IMAT 2026 Kriz Simulatoru", layout="wide")
 
@@ -269,6 +271,43 @@ def volatilite_index_hesapla(uni, tur_idx, k=3, gecis_yili_haric=True):
 GUVENILIRLIK_ESIGI = 89.5  # bu deger veya uzerine cikan %95 tahmini "GUVENILMEZ" olarak isaretlenir
 
 
+def taban_ornek_uret(n_sim, seed, boyut=2, ornekleme_yontemi="srs"):
+    """
+    [0,1) araliginda boyut-sutunlu N ornek uretir - 3 farkli yontemle:
+      - 'srs' (Basit Rastgele): her nokta tamamen bagimsiz rastgele - klasik Monte Carlo
+      - 'lhs' (Katmanli / Latin Hypercube): [0,1) araligi n_sim esit dilime bolunur, HER
+        dilimden TAM OLARAK bir ornek alinir - hicbir bolge atlanmaz, daha duzgun kapsama
+      - 'qmc' (Quasi-Monte Carlo / Sobol dizisi): tamamen rastgele degil, matematiksel
+        olarak en es-dagilmis (dusuk dispersiyonlu) deterministik bir dizi - ayni n_sim
+        icin SRS'den daha hizli/duzgun yakinsar
+    Donen: (n_sim, boyut) sekilli array.
+    """
+    rng = np.random.default_rng(seed)
+    if ornekleme_yontemi == "lhs":
+        sampler = qmc.LatinHypercube(d=boyut, seed=seed)
+        return sampler.random(n=n_sim)
+    elif ornekleme_yontemi == "qmc":
+        sampler = qmc.Sobol(d=boyut, seed=seed, scramble=True)
+        m = int(np.ceil(np.log2(max(n_sim, 2))))
+        u = sampler.random_base2(m=m)
+        return u[:n_sim]
+    else:
+        return rng.random((n_sim, boyut))
+
+
+def sok_donustur(u_sutunu, loc, scale, df=None):
+    """
+    [0,1) araligindaki u degerlerini, istenen dagilima donusturur (inverse-CDF /
+    quantile transform yontemiyle - hangi orneklemeden geldigine bakmaksizin ayni
+    islem calisir, bu yuzden SRS/LHS/QMC ile uyumludur).
+    df=None ise Normal(loc, scale); df bir sayi ise Student-t(df, loc, scale)
+    kullanilir (kucuk-orneklem belirsizligini hesaba katan 'Bayesian' duzeltme).
+    """
+    if df is not None:
+        return t_dagilim.ppf(u_sutunu, df=max(df, 1e-6), loc=loc, scale=scale)
+    return norm_dagilim.ppf(u_sutunu, loc=loc, scale=scale)
+
+
 def ulusal_etki_hesapla(tur_idx, gecis_yili_haric=True):
     """
     COK SEVIYELI SIMULASYONUN 1. SEVIYESI (ULUSAL/SISTEMIK):
@@ -339,20 +378,27 @@ def idiosinkratik_volatilite_havuzlanmis(tur_idx, ulusal_sozluk, gecis_yili_hari
     return pay / payda
 
 
-def cok_seviyeli_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75, k=3, gecis_yili_haric=True):
+def cok_seviyeli_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.75, k=3, gecis_yili_haric=True,
+                              ornekleme_yontemi="srs", kucuk_ornek_duzeltmesi=False):
     """
     COK SEVIYELI (HIERARCHICAL / MULTI-LEVEL) MONTE CARLO SIMULASYONU:
       SEVIYE 1 - Ulusal: her simulasyon orneginde BIR KERE, TUM universiteler
-        icin ORTAK bir 'ulusal sok' orneklenir: Normal(ulusal_ortalama, ulusal_std)
+        icin ORTAK bir 'ulusal sok' orneklenir
       SEVIYE 2 - Okula ozgu: o okula ait, ulusal etki ayristirildiktan SONRA
-        kalan kalintilardan turetilen (shrinkage/pooled) idiosinkratik std ile
-        Normal(0, idiosinkratik_std) orneklenir
+        kalan kalintilardan turetilen (shrinkage/pooled) idiosinkratik std ile orneklenir
       TOPLAM SICRAMA = Seviye1 + Seviye2 (+ kontenjan baski etkisi)
-    Bu yapi klasik tek-seviyeli simulasyondan farkli olarak, TUM okullarda ayni
-    anda yasanan sistemik soklarla (orn. ulusal aday sayisi patlamasi) HER okula
-    OZGU rastgeleligi AYRI AYRI modeller - okula ozgu volatilite artik sadece o
-    okulun GERCEKTEN kendine ozgu oynakligini yansitir, ulusal gurultuyle
-    sismemis olur.
+
+    ornekleme_yontemi: 'srs' (Basit Rastgele), 'lhs' (Katmanli/Latin Hypercube),
+        'qmc' (Quasi-Monte Carlo/Sobol) - hangisi secilirse secilsin AYNI dagilimdan
+        (Normal ya da Student-t) ornek uretir, sadece [0,1) noktalarinin NASIL
+        yerlestirildigi degisir.
+    kucuk_ornek_duzeltmesi: True ise Normal yerine Student-t dagilimi kullanilir -
+        cunku sadece 1-2 veri noktasindan hesaplanan bir ortalama/std'yi KESIN
+        biliyormus gibi davranmak (Normal) kucuk orneklemlerde belirsizligi
+        OLDUGUNDAN AZ gosterir. Student-t, bu ek belirsizligi otomatik olarak
+        hesaba katar (serbestlik deresi ne kadar kucukse kuyruklar o kadar
+        kalinlasir) - bu, tam bir MCMC calistirmaya gerek kalmadan (cunku model
+        conjugate/kapali-form cozumlu) ayni sonucu veren dogru istatistiksel yol.
     """
     yillar_puan = TABAN_PUANLAR.get(uni, {})
     degerler = [(y, yillar_puan[y][tur_idx]) for y in [2022, 2023, 2024, 2025]
@@ -362,6 +408,7 @@ def cok_seviyeli_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.7
     son_yil, son_puan = degerler[-1]
 
     ulusal_ort, ulusal_std, ulusal_sozluk = ulusal_etki_hesapla(tur_idx, gecis_yili_haric)
+    ulusal_df = max(len(ulusal_sozluk) - 1, 1)
     kalintilar = idiosinkratik_kalinti_hesapla(uni, tur_idx, ulusal_sozluk, gecis_yili_haric)
     pooled_idio_var = idiosinkratik_volatilite_havuzlanmis(tur_idx, ulusal_sozluk, gecis_yili_haric)
 
@@ -377,6 +424,7 @@ def cok_seviyeli_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.7
         shrunk_idio_var = pooled_idio_var
         idio_ortalama = 0.0
     idio_std = float(np.sqrt(max(shrunk_idio_var, 0.0)))
+    idio_df = max(len(kalintilar) - 1 + k, 1)  # shrinkage'daki k, havuzdan gelen "ek gozlem" gibi df'e katiliyor
 
     yillar_koltuk = KONTENJAN_TARIHSEL.get(uni, {})
     koltuk_son_yil = (yillar_koltuk.get(son_yil, (None, None))[tur_idx]
@@ -390,9 +438,11 @@ def cok_seviyeli_simulasyon(uni, tur_idx, n_sim=100000, seed=42, sensitivite=0.7
     if koltuk_degisim_yuzde is not None and koltuk_degisim_yuzde < 15:
         baski_etkisi = (15 - koltuk_degisim_yuzde) / 10 * sensitivite
 
-    rng = np.random.default_rng(seed)
-    seviye1_ulusal_sok = rng.normal(loc=ulusal_ort, scale=max(ulusal_std, 0.01), size=n_sim)
-    seviye2_okul_soku = rng.normal(loc=idio_ortalama, scale=max(idio_std, 0.01), size=n_sim)
+    u = taban_ornek_uret(n_sim, seed, boyut=2, ornekleme_yontemi=ornekleme_yontemi)
+    df1 = ulusal_df if kucuk_ornek_duzeltmesi else None
+    df2 = idio_df if kucuk_ornek_duzeltmesi else None
+    seviye1_ulusal_sok = sok_donustur(u[:, 0], loc=ulusal_ort, scale=max(ulusal_std, 0.01), df=df1)
+    seviye2_okul_soku = sok_donustur(u[:, 1], loc=idio_ortalama, scale=max(idio_std, 0.01), df=df2)
     sonuclar = son_puan + seviye1_ulusal_sok + seviye2_okul_soku + baski_etkisi
     sonuclar = np.clip(sonuclar, 0.0, 90.0)
     sonuclar_sirali = np.sort(sonuclar)
@@ -497,6 +547,49 @@ SCORRIMENTO_TAKVIMI_2026 = [
 ]
 
 # Testbusters'in pozisyon-bazli olasilik kurali (ilk atamadaki SIRA NUMARANA gore, puan degil)
+def gerekli_dogru_hesapla(hedef_puan, bos_sayisi, toplam_soru=60, dogru_puan=1.5, yanlis_puan=-0.4):
+    """
+    Sabit bir 'bos sayisi' icin, hedef puana ULASMAK (ya da gecmek) icin gereken
+    EN AZ dogru sayisini hesaplar. Kalan sorular otomatik olarak yanlis kabul edilir
+    (en kotu ihtimal / garanti esik).
+    Formul: 1.5*D - 0.4*Y >= hedef, D+Y = toplam_soru - bos_sayisi
+         => D >= (hedef + 0.4*(toplam_soru - bos_sayisi)) / (1.5 - (-0.4))
+    Doner: (gereken_en_az_dogru, buna_karsilik_yanlis, gercek_elde_edilen_puan) ya da
+    None (bu kadar bos ile hedefe ulasmak MATEMATIKSEL OLARAK imkansizsa).
+    """
+    kalan = toplam_soru - bos_sayisi
+    if kalan < 0:
+        return None
+    maks_mumkun_puan = dogru_puan * kalan
+    if maks_mumkun_puan < hedef_puan - 1e-9:
+        return None
+    payda = dogru_puan - yanlis_puan
+    pay = hedef_puan - yanlis_puan * kalan
+    d_ham = pay / payda
+    d_min = max(0, math.ceil(d_ham - 1e-9))
+    if d_min > kalan:
+        return None
+    yanlis = kalan - d_min
+    gercek_puan = round(dogru_puan * d_min + yanlis_puan * yanlis, 2)
+    return d_min, yanlis, gercek_puan
+
+
+def yanlis_sweep_tablosu(hedef_puan, toplam_soru=60, dogru_puan=1.5, yanlis_puan=-0.4):
+    """Bos=0 sabitken, her mumkun yanlis sayisi icin gereken en az dogruyu tablolar."""
+    satirlar = []
+    for y in range(0, toplam_soru + 1):
+        payda = dogru_puan - yanlis_puan
+        pay = hedef_puan - yanlis_puan * y
+        d_ham = pay / payda
+        d_min = max(0, math.ceil(d_ham - 1e-9))
+        if d_min + y > toplam_soru:
+            break
+        bos = toplam_soru - d_min - y
+        gercek_puan = round(dogru_puan * d_min + yanlis_puan * y, 2)
+        satirlar.append({"Yanlis": y, "Gereken En Az Dogru": d_min, "Bos": bos, "Elde Edilen Puan": gercek_puan})
+    return satirlar
+
+
 def pozisyon_olasilik_yorumu(sira_farki):
     """sira_farki = son gecerli pozisyon - senin pozisyonun (pozitif ise sen ondeydin)"""
     if sira_farki >= 0:
@@ -525,10 +618,11 @@ st.title("IMAT 2022-2026 Dogrulanmis Veri + Kriz ve Kontenjan Simulatoru")
 st.caption("Temel veriler 2022-2025 dogrulama surecinden ve 2026 resmi kontenjan kararindan geliyor. "
            "Sekmelerdeki kontrollerle senaryo uretebilirsin - hicbiri temel veriyi degistirmez.")
 
-sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7, sekme8, sekme9 = st.tabs([
+sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7, sekme8, sekme9, sekme10 = st.tabs([
     "Dogrulanmis Temel Veri", "Senaryo Simulatoru", "Ozel Taban Puan Ekleyici",
     "En Kotu Senaryo (Worst Case)", "Merkezi Tahmin (Ana Senaryo)", "Yerlesim Tahmini (Tercih Listem)",
-    "Terimler & Metodoloji", "Dis Kaynak Karsilastirma", "Seffaf Monte Carlo Simulasyonu"
+    "Terimler & Metodoloji", "Dis Kaynak Karsilastirma", "Seffaf Monte Carlo Simulasyonu",
+    "Puan Hedefi Hesaplayici"
 ])
 
 # ----------------------------------------------------------------------
@@ -1300,12 +1394,72 @@ with sekme9:
             "durustluk, uydurma bir kesinlik gostermekten daha onemli."
         )
 
+    with st.expander("🧒 Orneklem yontemleri: Basit Rastgele / Katmanli / Quasi-Monte Carlo"):
+        st.markdown(
+            "Zar oyununu OYNAMA SEKLIMIZ 3 farkli olabilir - hepsi ayni ortalama sonuca "
+            "gider ama biri digerinden daha 'duzenli':\n\n"
+            "- **Basit Rastgele (SRS)**: tam bir zar gibi, her atis tamamen bagimsiz ve "
+            "sanslidir. Bazen sans eseri bir bolgeye cok fazla, bir bolgeye az dusebilir.\n"
+            "- **Katmanli (Latin Hypercube)**: piyango biletlerini 100 bin esit gruba "
+            "ayirip HER gruptan tam olarak bir bilet cekmek gibi dusun - hicbir bolge "
+            "'unutulmus' olmaz, daha DUZGUN bir kapsama saglar.\n"
+            "- **Quasi-Monte Carlo (Sobol)**: rastgele bile degil - noktalari matematiksel "
+            "olarak birbirinden en uzak, en es dagilmis sekilde ONCEDEN yerlestiriyoruz. "
+            "En 'temiz' kapsama budur.\n\n"
+            "Bu ucunun de SONUCU (medyan, %95 vs.) neredeyse ayni cikar - cunku zaten "
+            "100.000 ornek yeterince fazla. Farki asil kucuk orneklem sayilarinda (1000 "
+            "gibi) gorursun - Katmanli/QMC daha az orneklede bile duzgun sonuc verir."
+        )
+
+    with st.expander("🧒 'Kucuk-Ornek Duzeltmesi' (Student-t / Bayesian) ne demek?"):
+        st.markdown(
+            "Bize sordugun listede **MCMC** de vardi - onu neden kullanmadigimizi burada "
+            "acikliyoruz. MCMC, cok karisik/analitik cozumu olmayan problemlerde 'dolayli "
+            "yoldan' ornek uretmek icin kullanilir. Ama bizim problemimizin ZATEN kapali "
+            "(analitik) bir cozumu var - bu yuzden MCMC'ye HIC GEREK YOK, dogrudan daha "
+            "basit ve KESIN bir yontem kullanabiliriz: **Student-t dagilimi**.\n\n"
+            "Sebebi soyle: sadece 1-2 yillik farktan bir ortalama/std hesaplarken, bunu "
+            "'KESIN dogru' gibi kullanmak (Normal dagilim) YALAN bir guven verir - cunku "
+            "2 sayidan hesaplanan bir ortalama, gercekte ne kadar dogru oldugunu da "
+            "bilmiyoruz! Student-t dagilimi bu EK belirsizligi otomatik ekler - ne kadar "
+            "AZ veri varsa (dusuk 'serbestlik derecesi'), kuyruklari o kadar KALINLASIR, "
+            "yani 'aslinda hicbir sey bilmiyoruz' der gibi daha genis bir aralik verir.\n\n"
+            "**Bunu actiginda tahmin araliklari daha da genisleyecek, belki daha cok okul "
+            "GUVENILMEZ cikacak - bu uzucu ama DURUST bir sonuc: gercekten bu kadar az "
+            "veriyle daha fazla kesinlik iddia edemeyiz.**"
+        )
+
+    st.markdown("#### Bize sordugun 5 yontemden hangilerini kullandik?")
+    st.markdown(
+        "✅ **Basit Rastgele** - hep kullandik (varsayilan)\n\n"
+        "✅ **Katmanli (Stratified/LHS)** - simdi eklendi, secenek olarak asagida\n\n"
+        "✅ **Quasi-Monte Carlo** - simdi eklendi, secenek olarak asagida\n\n"
+        "⚠️ **Onem Orneklemesi (Importance Sampling)**: KULLANMADIK - bu yontem, cok NADIR "
+        "gorulen olaylarin olasiligini hesaplarken ise yarar (orn. 'milyonda bir sans "
+        "olan bir sey'). Biz zaten butun dagilimin %5-%50-%95'ini hesapliyoruz, nadir bir "
+        "olay pesinde degiliz - bu yuzden burada bir faydasi olmazdi.\n\n"
+        "⚠️ **MCMC**: KULLANMADIK, yukarida acikladigimiz gibi problemimizin zaten kapali "
+        "(analitik) bir cozumu var (Student-t) - MCMC'nin bize saglayacagi ekstra bir sey "
+        "yok, sadece gereksiz karmasiklik katardi."
+    )
+
     gecis_yili_secim = st.checkbox(
         "2023->2024 sistemik sicramasini hesaptan cikar (onerilir - Tek Seviyeli icin gerekli, "
         "Cok Seviyeli icin ek guvence)", value=True, key="s9_gecis"
     )
     yontem_s9 = st.radio("Simulasyon Yontemi", ["Tek Seviyeli", "Cok Seviyeli (Hierarchical)"],
                           horizontal=True, key="s9_yontem")
+    ornekleme_s9 = st.selectbox(
+        "Orneklem Yontemi (sadece Cok Seviyeli'de aktif)",
+        ["srs", "lhs", "qmc"],
+        format_func=lambda x: {"srs": "Basit Rastgele (SRS)", "lhs": "Katmanli (Latin Hypercube)",
+                                "qmc": "Quasi-Monte Carlo (Sobol)"}[x],
+    )
+    kucuk_ornek_s9 = st.checkbox(
+        "Kucuk-Ornek Duzeltmesi (Student-t / Bayesian) kullan - daha DURUST ama daha GENIS araliklar "
+        "(sadece Cok Seviyeli'de aktif)",
+        value=False, key="s9_kucuk_ornek"
+    )
     n_sim_secim = st.select_slider("Orneklem sayisi (n_sim)", options=[1000, 10000, 100000, 500000], value=100000)
     k_secim = st.slider("Havuzlama gucu (k) - yuksek = daha cok havuza guven, dusuk = daha cok okulun kendi verisine guven",
                           1, 10, 3)
@@ -1329,7 +1483,9 @@ with sekme9:
             })
         else:
             sonuc = cok_seviyeli_simulasyon(uni, tur_idx_s9, n_sim=n_sim_secim, sensitivite=0.75, k=k_secim,
-                                              gecis_yili_haric=gecis_yili_secim)
+                                              gecis_yili_haric=gecis_yili_secim,
+                                              ornekleme_yontemi=ornekleme_s9,
+                                              kucuk_ornek_duzeltmesi=kucuk_ornek_s9)
             if sonuc is None:
                 continue
             satirlar_s9.append({
@@ -1382,6 +1538,78 @@ with sekme9:
         karsilastirma_s9[["Universite", kolon_s9, "%95 Tahmin Araligi"]],
         use_container_width=True, hide_index=True
     )
+
+with sekme10:
+    st.info(
+        "🧒 **Bu sekme ne ise yarar?** 'X puan almak icin kac soru dogru yapmam lazim?' "
+        "sorusuna cevap veriyor - tipki bir markette 'bu kadar param var, ne kadar sekerleme "
+        "alabilirim' hesaplamak gibi. Sen bir hedef puan soyluyorsun, biz de sana 'bu kadar "
+        "dogru yapman yeterli' diyoruz.\n\n"
+        "**Nasil kullanilir?** Asagida hedef puanini ve kac soruyu bos birakmayi dusundugunu "
+        "gir - anlik olarak gereken en az dogru sayisini goreceksin."
+    )
+    st.subheader("Puan Hedefi Hesaplayici")
+    st.caption(
+        "Denklem: 1.5 x Dogru - 0.4 x Yanlis >= Hedef Puan, ve Dogru + Yanlis + Bos = 60. "
+        "Bos sorular 0 puan getirir, sadece 'oyun disi' kalirlar - riski yok ama faydasi da yok."
+    )
+
+    col_h1, col_h2 = st.columns(2)
+    with col_h1:
+        hedef_puan_secim = st.number_input("Hedef Puan (bu puan veya ustu)", min_value=0.0, max_value=90.0,
+                                             value=65.0, step=0.5)
+    with col_h2:
+        bos_secim = st.slider("Bos birakmayi planladigin soru sayisi", 0, 60, 0)
+
+    sonuc_hesap = gerekli_dogru_hesapla(hedef_puan_secim, bos_secim)
+    if sonuc_hesap is None:
+        st.error(
+            f"🧒 Bu kadar (**{bos_secim}**) soruyu bos birakirsan, kalan sorularin HEPSINI "
+            f"dogru yapsan bile **{hedef_puan_secim}** puana ulasamazsin (kalan "
+            f"{60 - bos_secim} sorunun tavani: {1.5 * (60 - bos_secim):.1f} puan). "
+            "Bos sayisini azalt."
+        )
+    else:
+        d_min, yanlis_hakki, gercek_puan = sonuc_hesap
+        st.success(
+            f"🧒 **{hedef_puan_secim} puan** almak icin: en az **{d_min} dogru** yapman "
+            f"yeterli (kalan **{yanlis_hakki} soruyu** yanlis yapsan bile sorun olmaz). "
+            f"Bu durumda elde edecegin puan: **{gercek_puan}**."
+        )
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Dogru (en az)", d_min)
+        m2.metric("Yanlis (rahatlikla)", yanlis_hakki)
+        m3.metric("Bos", bos_secim)
+
+    st.divider()
+    st.markdown("### Butun Senaryolar: Bos = 0 iken, her 'yanlis sayisi' icin gereken en az dogru")
+    st.caption(
+        "🧒 Bu tablo sana 'ne kadar cok yanlis yaparsan, o kadar cok dogruya ihtiyacin olur' "
+        "iliskisini gosterir - yanlis sayin arttikca dogru ihtiyacin da artar, cunku her "
+        "yanlis seni geriye cekiyor (-0.4 puan)."
+    )
+    tablo_satirlari = yanlis_sweep_tablosu(hedef_puan_secim)
+    if tablo_satirlari:
+        df_hedef = pd.DataFrame(tablo_satirlari)
+        st.dataframe(df_hedef, use_container_width=True, hide_index=True)
+
+        st.markdown("#### Yanlis Sayisi arttikca Gereken Dogru Sayisi nasil degisiyor?")
+        st.line_chart(df_hedef.set_index("Yanlis")[["Gereken En Az Dogru"]])
+    else:
+        st.warning(f"{hedef_puan_secim} puanina HICBIR yanlis-dogru kombinasyonuyla ulasilamiyor (60 sorunun hepsi dogru olsa {1.5*60:.1f} puan, bu senin hedefinden dusuk).")
+
+    st.divider()
+    with st.expander("🧒 Neden 'bos birakmak' zararsiz ama 'yanlis yapmak' zararli?"):
+        st.markdown(
+            "Bos biraktigin bir soru sana 0 puan verir - ne kazanirsin ne kaybedersin, "
+            "tipki o soruyu hic gormemis gibisin. Ama yanlis cevap verirsen -0.4 puan "
+            "KAYBEDERSIN - yani o soruyu yapmasaydin daha iyi olurdu. Bu yuzden EGER hic "
+            "fikrin yoksa (5 siktan hicbirini eleyemiyorsan) bos birakmak matematiksel "
+            "olarak daha guvenlidir. Ama en az 2 sikki eleyebiliyorsan, rastgele tahminin "
+            "ortalama getirisi pozitife doner (bu, sana gonderdigin baska bir belgede "
+            "gecen 'Beklenen Deger' yontemiyle ayni mantik) - o durumda tahmin etmek "
+            "mantiklidir."
+        )
 
 st.divider()
 st.caption("Temel veri, 2022-2025 IMAT capraz kaynak dogrulamasindan alinmistir (Testbusters, Locomotive, Futura, "
