@@ -14,7 +14,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-from scipy.stats import qmc, norm as norm_dagilim, t as t_dagilim
+from scipy.stats import qmc, norm as norm_dagilim, t as t_dagilim, binom as binom_dagilim
 
 st.set_page_config(page_title="IMAT 2026 Kriz Simulatoru", layout="wide")
 
@@ -547,6 +547,37 @@ SCORRIMENTO_TAKVIMI_2026 = [
 ]
 
 # Testbusters'in pozisyon-bazli olasilik kurali (ilk atamadaki SIRA NUMARANA gore, puan degil)
+def sansa_birakma_analizi(n_soru, elenebilen_sik, dogru_puan=1.5, yanlis_puan=-0.4, toplam_sik=5):
+    """
+    BINOM DAGILIMI ile 'bilmedigin sorulari sansa birakirsan ne olur' analizi.
+    Her soruda 'toplam_sik' secenek var; elenebilen_sik kadarini eleyebiliyorsan,
+    kalan (toplam_sik - elenebilen_sik) secenek arasinda rastgele isaretliyorsun ->
+    dogru olma olasiligi p = 1 / (toplam_sik - elenebilen_sik).
+    n_soru tane BAGIMSIZ boyle soru isaretlersen, dogru sayin X ~ Binom(n_soru, p)
+    dagilimini izler. Bu fonksiyon: p, beklenen deger (tek soru ve toplam), ve X'in
+    olasi her degeri icin toplam puan katkisi + olasiligini dondurur.
+    """
+    if elenebilen_sik >= toplam_sik:
+        return None
+    p = 1.0 / (toplam_sik - elenebilen_sik)
+    ev_soru = p * dogru_puan + (1 - p) * yanlis_puan
+    ev_toplam = ev_soru * n_soru
+
+    dagilim = []
+    olumlu_olasilik = 0.0  # P(toplam katki >= 0)
+    for x in range(0, n_soru + 1):
+        olasilik = float(binom_dagilim.pmf(x, n_soru, p))
+        katki = dogru_puan * x + yanlis_puan * (n_soru - x)
+        if katki >= 0:
+            olumlu_olasilik += olasilik
+        dagilim.append({"Dogru Sayisi (X)": x, "Puan Katkisi": round(katki, 2), "Olasilik": round(olasilik, 4)})
+
+    return {
+        "p": p, "ev_soru": round(ev_soru, 3), "ev_toplam": round(ev_toplam, 2),
+        "olumlu_olasilik": round(olumlu_olasilik, 3), "dagilim": dagilim,
+    }
+
+
 def gerekli_dogru_hesapla(hedef_puan, bos_sayisi, toplam_soru=60, dogru_puan=1.5, yanlis_puan=-0.4):
     """
     Sabit bir 'bos sayisi' icin, hedef puana ULASMAK (ya da gecmek) icin gereken
@@ -1597,6 +1628,66 @@ with sekme10:
         st.line_chart(df_hedef.set_index("Yanlis")[["Gereken En Az Dogru"]])
     else:
         st.warning(f"{hedef_puan_secim} puanina HICBIR yanlis-dogru kombinasyonuyla ulasilamiyor (60 sorunun hepsi dogru olsa {1.5*60:.1f} puan, bu senin hedefinden dusuk).")
+
+    st.divider()
+    st.divider()
+    st.markdown("### 🎲 Bilmedigin Sorulari Tahmin Etmeli misin? (Binom Dagilimi)")
+    st.info(
+        "🧒 **Bu ne ise yarar?** Sinavda bazi sorularda hicbir fikrin olmaz ama bazi "
+        "siklari eleyebilirsin. Bu, 'zar atmaya deger mi' sorusuna cevap veriyor - "
+        "tipki bir torbadan renkli toplar cekip, hangi renklerin daha cok oldugunu "
+        "bilerek tahmin yapmak gibi."
+    )
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        n_soru_secim = st.slider("Kac soruda kararsizsin (hic fikrin yok ama 1+ sikki eleyebiliyorsun)?",
+                                   0, 60, 10)
+    with col_b2:
+        elenebilen_secim = st.select_slider("Kac sikki eleyebiliyorsun? (IMAT'ta 5 sik var)",
+                                              options=[0, 1, 2, 3, 4], value=0,
+                                              format_func=lambda x: f"{x} sik eleyebiliyorum (kalan {5-x} sikdan biri dogru)")
+
+    if n_soru_secim > 0:
+        sonuc_binom = sansa_birakma_analizi(n_soru_secim, elenebilen_secim)
+        p = sonuc_binom["p"]
+        ev_soru = sonuc_binom["ev_soru"]
+        if ev_soru > 0:
+            st.success(
+                f"🧒 Dogru olma ihtimalin: **%{p*100:.0f}**. Her boyle soruda ORTALAMA "
+                f"**+{ev_soru}** puan kazanirsin (kaybetmezsin!). {n_soru_secim} soruda "
+                f"toplam beklenen kazancin: **+{sonuc_binom['ev_toplam']}** puan. "
+                f"**Tahmin etmeye DEGER.**"
+            )
+        elif ev_soru < 0:
+            st.error(
+                f"🧒 Dogru olma ihtimalin: **%{p*100:.0f}**. Her boyle soruda ORTALAMA "
+                f"**{ev_soru}** puan KAYBEDERSIN. {n_soru_secim} soruda toplam beklenen "
+                f"kaybin: **{sonuc_binom['ev_toplam']}** puan. **Bos birakmak daha guvenli.**"
+            )
+        else:
+            st.warning("🧒 Tam olarak basa bas - ne kar ne zarar, fark etmez.")
+
+        st.caption(
+            f"P(bu {n_soru_secim} sorudan toplamda ZARAR ETMEME ihtimali) = "
+            f"**%{sonuc_binom['olumlu_olasilik']*100:.1f}** (yani tahmin ettiginde kotu "
+            f"sansa da denk gelebilirsin - bu, o riskin ne kadar oldugunu gosteriyor)"
+        )
+
+        with st.expander("Olasilik Dagilimi Tablosu ve Grafigi (Binom Dagilimi)"):
+            df_binom = pd.DataFrame(sonuc_binom["dagilim"])
+            st.dataframe(df_binom, use_container_width=True, hide_index=True)
+            st.bar_chart(df_binom.set_index("Dogru Sayisi (X)")[["Olasilik"]])
+
+        with st.expander("🧒 5 sikta HICBIR seyi eleyemezsen ne olur? (ilginc bir sonuc)"):
+            kontrol = sansa_birakma_analizi(1, 0)
+            st.markdown(
+                f"5 siktan hicbirini eleyemiyorsan, dogru olma ihtimalin %20 (1/5). "
+                f"Beklenen deger: 0.2×1.5 + 0.8×(-0.4) = **{kontrol['ev_soru']}** - yani "
+                "KUCUK bir NEGATIF sayi! Yani IMAT'ta 'hicbir fikrin yoksa' bos birakmak "
+                "istatistiksel olarak tahmin etmekten biraz daha iyidir. Ama SADECE 1 "
+                "sikki bile eleyebilirsen (4 kalir, %25 sans), beklenen deger pozitife "
+                "doner - o zaman tahmin etmeye deger."
+            )
 
     st.divider()
     with st.expander("🧒 Neden 'bos birakmak' zararsiz ama 'yanlis yapmak' zararli?"):
